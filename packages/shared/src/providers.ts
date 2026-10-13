@@ -99,3 +99,24 @@ export interface ChatwootInboxDto {
   bridgeable: boolean;
   webhookUrl: string | null;
 }
+
+export const instanceCreateSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}$/, 'Use letters, numbers, - or _ (up to 40 characters)'),
+});
+
+export const pairPhoneSchema = z.object({
+  phone: z
+    .string()
+    .transform((v) => v.replace(/\D/g, ''))
+    .pipe(z.string().regex(/^\d{10,15}$/, 'Enter the full number with country code, like 5511987654321')),
+});
+
+/** State of the "Connect WhatsApp" screen, polled by the dashboard. */
+export type PairingState =
+  | { status: 'logged_in'; phone: string | null }
+  | { status: 'qr'; qr: string }
+  | { status: 'passkey'; openUrl: string; stage: string }
+  | { status: 'waiting'; message: string };

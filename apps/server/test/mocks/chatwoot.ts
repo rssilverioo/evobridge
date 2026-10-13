@@ -20,6 +20,7 @@ interface Contact {
   name: string;
   phone_number: string | null;
   identifier: string | null;
+  avatar_url?: string | null;
 }
 interface ContactInbox {
   contact_id: number;
@@ -52,6 +53,7 @@ export class FakeChatwoot {
   url = '';
   tokens: Record<string, { name: string; role: 'administrator' | 'agent' }> = { 'admin-token': { name: 'Ana Admin', role: 'administrator' } };
   accountId = 1;
+  locale = 'pt_BR';
   inboxes: Inbox[] = [];
   contacts: Contact[] = [];
   contactInboxes: ContactInbox[] = [];
@@ -131,6 +133,21 @@ export class FakeChatwoot {
       return { id: 1, name: user.name, email: 'ana@example.com', role: user.role, accounts: [{ id: this.accountId, name: 'Acme', status: 'active', role: user.role }] };
     });
 
+    app.get(base, async (req, reply) => {
+      if (!this.auth(req, reply)) return reply;
+      return { id: this.accountId, name: 'Acme', locale: this.locale };
+    });
+    app.patch<{ Params: { id: string }; Body: { name?: string; phone_number?: string; avatar_url?: string } }>(`${base}/contacts/:id`, async (req, reply) => {
+      if (!this.auth(req, reply)) return reply;
+      const c = this.contacts.find((x) => x.id === Number(req.params.id));
+      if (!c) return reply.code(404).send({ error: 'Resource could not be found' });
+      if (req.body.phone_number && this.contacts.some((x) => x.id !== c.id && x.phone_number === req.body.phone_number)) {
+        return reply.code(422).send({ message: 'Phone number has already been taken' });
+      }
+      Object.assign(c, req.body);
+      return { payload: c };
+    });
+
     app.get(`${base}/inboxes`, async (req, reply) => {
       const user = this.auth(req, reply);
       if (!user) return reply;
@@ -170,13 +187,14 @@ export class FakeChatwoot {
       const found = this.contacts.filter((c) => (f.attribute_key === 'phone_number' ? values.includes(c.phone_number ?? '') : values.includes((c.identifier ?? '').toLowerCase())));
       return { meta: { count: found.length }, payload: found };
     });
-    app.post<{ Body: { inbox_id: number; source_id?: string; name: string; phone_number?: string; identifier?: string } }>(`${base}/contacts`, async (req, reply) => {
+    app.post<{ Body: { inbox_id: number; source_id?: string; name: string; phone_number?: string; identifier?: string; avatar_url?: string } }>(`${base}/contacts`, async (req, reply) => {
       if (!this.auth(req, reply)) return reply;
       const b = req.body;
       if (b.phone_number && !/^\+[1-9]\d{1,14}$/.test(b.phone_number)) return reply.code(422).send({ message: 'Phone number should be in e164 format', attributes: ['phone_number'] });
       if (b.phone_number && this.contacts.some((c) => c.phone_number === b.phone_number)) return reply.code(422).send({ message: 'Phone number has already been taken', attributes: ['phone_number'] });
       if (b.identifier && this.contacts.some((c) => c.identifier === b.identifier)) return reply.code(422).send({ message: 'Identifier has already been taken', attributes: ['identifier'] });
       const contact = this.addContact(b.phone_number ?? null, b.name, b.identifier ?? null);
+      contact.avatar_url = b.avatar_url ?? null;
       const sourceId = b.source_id ?? `uuid-${this.next()}`;
       this.contactInboxes.push({ contact_id: contact.id, inbox_id: b.inbox_id, source_id: sourceId });
       return { payload: { contact: { ...contact, contact_inboxes: [{ source_id: sourceId, inbox: { id: b.inbox_id } }] }, contact_inbox: { source_id: sourceId, inbox: { id: b.inbox_id } } } };

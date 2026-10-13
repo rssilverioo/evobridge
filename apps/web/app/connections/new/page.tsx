@@ -1,30 +1,33 @@
 'use client';
 
-import type { ConnectionDto, ProviderDto, ProviderKind } from '@evobridge/shared';
-import { PROVIDER_LABELS } from '@evobridge/shared';
+import type { ConnectionDto, EvolutionInstanceDto, ProviderDto } from '@evobridge/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Check, Plus } from 'lucide-react';
+import { ArrowLeft, Check } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '@/components/app-shell';
 import { Route } from '@/components/connection-card';
-import { ProviderForm } from '@/components/provider-form';
+import { PairingPanel } from '@/components/pairing-panel';
 import { ProvisionSteps } from '@/components/provision-steps';
-import { ProviderStatusText } from '@/components/status';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/overlay';
 import { Checkbox, Field, Input, Panel, Skeleton, Switch } from '@/components/ui/primitives';
-import { api, errorText } from '@/lib/api';
+import { ApiRequestError, api, errorText } from '@/lib/api';
 import { keys, useAccounts, useInboxes, useInstances, useProviders, useSystem } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
-const STEPS = ['Evolution Go', 'Chatwoot', 'Link', 'Connect'] as const;
+const STEPS = ['WhatsApp', 'Chatwoot inbox', 'Connect'] as const;
+const NEW_INSTANCE = '__new__';
+
+interface WhatsAppChoice {
+  evoId: string;
+  instance: EvolutionInstanceDto;
+}
 
 export default function NewConnectionPage() {
   const [step, setStep] = useState(0);
-  const [evoId, setEvoId] = useState<string>();
-  const [cwId, setCwId] = useState<string>();
+  const [wa, setWa] = useState<WhatsAppChoice | null>(null);
   const [created, setCreated] = useState<ConnectionDto | null>(null);
   const [running, setRunning] = useState(false);
 
@@ -34,7 +37,7 @@ export default function NewConnectionPage() {
         <ArrowLeft className="size-3" />
         Connections
       </Link>
-      <PageHeader title="Create connection" description="Pick a WhatsApp instance and the Chatwoot inbox it should appear in. EvoBridge sets up both webhooks for you." />
+      <PageHeader title="Create connection" description="Pick a WhatsApp number and the Chatwoot inbox it should appear in. EvoBridge sets up both webhooks for you." />
       <ol className="mb-6 flex flex-wrap items-center gap-x-2 gap-y-2 text-[13px]">
         {STEPS.map((label, i) => (
           <li key={label} className="flex items-center gap-2">
@@ -53,21 +56,18 @@ export default function NewConnectionPage() {
       </ol>
 
       <div className="max-w-2xl">
-        {step === 0 && <ProviderStep kind="evolution_go" selected={evoId} onDone={(id) => (setEvoId(id), setStep(1))} />}
-        {step === 1 && <ProviderStep kind="chatwoot" selected={cwId} onDone={(id) => (setCwId(id), setStep(2))} onBack={() => setStep(0)} />}
-        {step === 2 && evoId && cwId && (
-          <LinkStep
-            evoId={evoId}
-            cwId={cwId}
-            onBack={() => setStep(1)}
+        {step === 0 && <WhatsAppStep initial={wa} onDone={(choice) => (setWa(choice), setStep(1))} />}
+        {step === 1 && wa && (
+          <InboxStep
+            wa={wa}
+            onBack={() => setStep(0)}
             onCreate={async (body) => {
-              setStep(3);
+              setStep(2);
               setRunning(true);
               try {
                 setCreated(await api.post<ConnectionDto>('/api/connections', body));
               } catch (err) {
-                setCreated(null);
-                setStep(2);
+                setStep(1);
                 throw err;
               } finally {
                 setRunning(false);
@@ -75,94 +75,124 @@ export default function NewConnectionPage() {
             }}
           />
         )}
-        {step === 3 && <ConnectStep connection={created} running={running} onUpdate={setCreated} setRunning={setRunning} />}
+        {step === 2 && <ConnectStep connection={created} running={running} onUpdate={setCreated} setRunning={setRunning} />}
       </div>
     </>
   );
 }
 
-function ProviderStep({ kind, selected, onDone, onBack }: { kind: ProviderKind; selected?: string; onDone: (id: string) => void; onBack?: () => void }) {
-  const providers = useProviders();
-  const mine = (providers.data ?? []).filter((p) => p.kind === kind);
-  const [adding, setAdding] = useState(false);
-  const [choice, setChoice] = useState<string | undefined>(selected);
-  useEffect(() => {
-    if (!choice && mine[0]) setChoice(mine[0].id);
-  }, [choice, mine]);
-  const label = PROVIDER_LABELS[kind];
-  const showForm = adding || (!providers.isLoading && mine.length === 0);
-
+/** Server picker, shown only when more than one server of that kind is registered. */
+function ProviderPicker({ label, value, onChange, providers }: { label: string; value?: string; onChange: (id: string) => void; providers: ProviderDto[] }) {
+  if (providers.length < 2) return null;
   return (
-    <Panel className="p-5">
-      <h2 className="text-[15px] font-semibold">{kind === 'evolution_go' ? 'Where is your Evolution Go?' : 'Where is your Chatwoot?'}</h2>
-      <p className="mt-1 text-[13px] text-muted">
-        {kind === 'evolution_go'
-          ? 'EvoBridge talks to Evolution Go with the global API key. Evolution API (Node) is a different product and is not supported.'
-          : 'Use an administrator access token: EvoBridge creates the inbox and sets its webhook.'}
-      </p>
-      <div className="mt-5">
-        {providers.isLoading ? (
-          <Skeleton className="h-24" />
-        ) : showForm ? (
-          <>
-            <ProviderForm kind={kind} submitLabel="Save and continue" onSaved={(p) => onDone(p.id)} />
-            {mine.length > 0 && (
-              <button type="button" className="mt-3 text-xs text-muted hover:text-fg" onClick={() => setAdding(false)}>
-                Use a saved {label} instead
-              </button>
-            )}
-          </>
-        ) : (
-          <div className="space-y-2">
-            {mine.map((p) => (
-              <ProviderOption key={p.id} provider={p} selected={choice === p.id} onSelect={() => setChoice(p.id)} />
-            ))}
-            <button type="button" onClick={() => setAdding(true)} className="flex w-full items-center gap-2 rounded-md border border-dashed border-border-strong px-3 py-2.5 text-[13px] text-muted hover:text-fg">
-              <Plus className="size-3.5" />
-              Add another {label}
-            </button>
-          </div>
-        )}
-      </div>
-      {!showForm && (
-        <div className="mt-5 flex justify-between">
-          {onBack ? (
-            <Button variant="ghost" onClick={onBack}>
-              Back
-            </Button>
-          ) : (
-            <span />
-          )}
-          <Button variant="primary" disabled={!choice} onClick={() => choice && onDone(choice)}>
-            Continue
-          </Button>
-        </div>
-      )}
-      {showForm && onBack && (
-        <Button variant="ghost" className="mt-3" onClick={onBack}>
-          Back
-        </Button>
-      )}
-    </Panel>
+    <Field label={label} htmlFor={`${label}-server`}>
+      <Select id={`${label}-server`} value={value} onValueChange={onChange} placeholder="Choose a server" items={providers.map((p) => ({ value: p.id, label: p.name, hint: p.baseUrl.replace(/^https?:\/\//, '') }))} />
+    </Field>
   );
 }
 
-function ProviderOption({ provider, selected, onSelect }: { provider: ProviderDto; selected: boolean; onSelect: () => void }) {
+function WhatsAppStep({ initial, onDone }: { initial: WhatsAppChoice | null; onDone: (c: WhatsAppChoice) => void }) {
+  const qc = useQueryClient();
+  const providers = useProviders();
+  const evoProviders = (providers.data ?? []).filter((p) => p.kind === 'evolution_go');
+  const [evoId, setEvoId] = useState<string | undefined>(initial?.evoId);
+  useEffect(() => {
+    if (!evoId && evoProviders[0]) setEvoId(evoProviders[0].id);
+  }, [evoId, evoProviders]);
+  const instances = useInstances(evoId);
+  const [choice, setChoice] = useState<string | undefined>(initial?.instance.id);
+  const [newName, setNewName] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [paired, setPaired] = useState<string | null>(null);
+
+  const instance = instances.data?.find((i) => i.id === choice);
+  const needsPairing = Boolean(instance && !instance.connected && paired !== instance.id);
+
+  const onConnected = useCallback(() => {
+    if (!instance) return;
+    setPaired(instance.id);
+    void qc.invalidateQueries({ queryKey: keys.instances(evoId ?? '') });
+  }, [instance, evoId, qc]);
+
+  async function create() {
+    if (!evoId) return;
+    setCreating(true);
+    setError(null);
+    try {
+      const inst = await api.post<EvolutionInstanceDto>(`/api/providers/${evoId}/instances`, { name: newName.trim() });
+      await qc.invalidateQueries({ queryKey: keys.instances(evoId) });
+      setChoice(inst.id);
+      setNewName('');
+    } catch (err) {
+      setError(err instanceof ApiRequestError && err.fields ? Object.values(err.fields)[0]! : errorText(err));
+    } finally {
+      setCreating(false);
+    }
+  }
+
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={cn('flex w-full items-center gap-3 rounded-md border px-3 py-2.5 text-left', selected ? 'border-accent bg-accent/5' : 'border-border hover:border-border-strong')}
-    >
-      <span className={cn('flex size-4 items-center justify-center rounded-full border', selected ? 'border-accent' : 'border-border-strong')}>
-        {selected && <span className="size-2 rounded-full bg-accent" />}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-medium">{provider.name}</span>
-        <span className="block truncate text-xs text-faint">{provider.baseUrl}</span>
-      </span>
-      <ProviderStatusText status={provider.status} />
-    </button>
+    <Panel className="p-5">
+      <h2 className="text-[15px] font-semibold">Which WhatsApp number?</h2>
+      <p className="mt-1 text-[13px] text-muted">Use an instance you already have, or create one and link the phone right here.</p>
+      <div className="mt-5 space-y-5">
+        <ProviderPicker label="Evolution Go" value={evoId} onChange={(v) => (setEvoId(v), setChoice(undefined))} providers={evoProviders} />
+        <Field label="Instance" htmlFor="instance" error={instances.error ? errorText(instances.error) : undefined}>
+          {instances.isLoading || providers.isLoading ? (
+            <Skeleton className="h-8" />
+          ) : (
+            <Select
+              id="instance"
+              value={choice}
+              onValueChange={setChoice}
+              placeholder="Choose an instance"
+              items={[
+                ...(instances.data ?? []).map((i) => ({ value: i.id, label: i.name, hint: i.phone ? `+${i.phone}` : i.connected ? 'connected' : 'not linked' })),
+                { value: NEW_INSTANCE, label: 'Create a new instance' },
+              ]}
+            />
+          )}
+        </Field>
+
+        {choice === NEW_INSTANCE && (
+          <form
+            className="flex items-start gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void create();
+            }}
+          >
+            <div className="flex-1">
+              <Field label="Instance name" htmlFor="new-instance" hint="Letters, numbers, - and _. For example: sales or support." error={error ?? undefined}>
+                <Input id="new-instance" value={newName} onChange={(e) => setNewName(e.target.value)} autoFocus />
+              </Field>
+            </div>
+            <Button type="submit" variant="primary" loading={creating} disabled={!newName.trim()} className="mt-[26px]">
+              Create
+            </Button>
+          </form>
+        )}
+
+        {instance && needsPairing && evoId && (
+          <div>
+            <p className="mb-2 text-[13px] font-medium">Link the phone</p>
+            <PairingPanel providerId={evoId} instanceId={instance.id} onConnected={onConnected} />
+          </div>
+        )}
+        {instance && !needsPairing && (
+          <p className="flex items-center gap-2 text-[13px] text-ok">
+            <Check className="size-4" />
+            {instance.name} is linked to WhatsApp{instance.phone ? ` (+${instance.phone})` : ''}.
+          </p>
+        )}
+      </div>
+      <div className="mt-6 flex items-center justify-end gap-3">
+        {needsPairing && <span className="text-xs text-faint">You can also link the phone later.</span>}
+        <Button variant="primary" disabled={!instance || !evoId} onClick={() => instance && evoId && onDone({ evoId, instance })}>
+          Continue
+        </Button>
+      </div>
+    </Panel>
   );
 }
 
@@ -173,23 +203,26 @@ interface CreateBody {
   accountId: number;
   inbox: { mode: 'existing'; inboxId: number } | { mode: 'create'; inboxName: string };
   replaceExistingWebhooks: boolean;
-  options: { signAgentName: boolean; reopenConversation: boolean; syncPhoneMessages: boolean; includeGroups: boolean };
+  options: Record<string, boolean>;
 }
 
-function LinkStep({ evoId, cwId, onBack, onCreate }: { evoId: string; cwId: string; onBack: () => void; onCreate: (body: CreateBody) => Promise<void> }) {
+function InboxStep({ wa, onBack, onCreate }: { wa: WhatsAppChoice; onBack: () => void; onCreate: (body: CreateBody) => Promise<void> }) {
   const qc = useQueryClient();
   const providers = useProviders();
-  const instances = useInstances(evoId);
+  const cwProviders = (providers.data ?? []).filter((p) => p.kind === 'chatwoot');
+  const [cwId, setCwId] = useState<string | undefined>();
+  useEffect(() => {
+    if (!cwId && cwProviders[0]) setCwId(cwProviders[0].id);
+  }, [cwId, cwProviders]);
   const accounts = useAccounts(cwId);
   const system = useSystem();
-  const [instanceName, setInstanceName] = useState<string>();
   const [accountId, setAccountId] = useState<number>();
   const inboxes = useInboxes(cwId, accountId);
   const [inboxChoice, setInboxChoice] = useState<string>('create');
-  const [inboxName, setInboxName] = useState('');
+  const [inboxName, setInboxName] = useState(`WhatsApp ${wa.instance.name}`);
   const [consent, setConsent] = useState(false);
   const [publicUrl, setPublicUrl] = useState('');
-  const [options, setOptions] = useState({ signAgentName: true, reopenConversation: true, syncPhoneMessages: true, includeGroups: false });
+  const [options, setOptions] = useState({ signAgentName: true, reopenConversation: true, syncPhoneMessages: true, includeGroups: false, connectionNotices: true });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -197,32 +230,27 @@ function LinkStep({ evoId, cwId, onBack, onCreate }: { evoId: string; cwId: stri
     if (!accountId && accounts.data?.length) setAccountId((accounts.data.find((a) => a.role === 'administrator') ?? accounts.data[0])!.id);
   }, [accounts.data, accountId]);
   useEffect(() => {
-    if (instanceName && !inboxName) setInboxName(`WhatsApp ${instanceName}`);
-  }, [instanceName, inboxName]);
-  useEffect(() => {
     if (system.data && !system.data.publicUrl && !publicUrl) setPublicUrl(window.location.origin);
   }, [system.data, publicUrl]);
 
-  const instance = instances.data?.find((i) => i.name === instanceName);
   const inbox = inboxChoice === 'create' ? null : inboxes.data?.find((i) => String(i.id) === inboxChoice);
-  const takenWebhooks = [instance?.webhookUrl, inbox?.webhookUrl].filter((u): u is string => Boolean(u && !u.includes('/hooks/')));
+  const takenWebhooks = [wa.instance.webhookUrl, inbox?.webhookUrl].filter((u): u is string => Boolean(u && !u.includes('/hooks/')));
   const needsPublicUrl = system.data && !system.data.publicUrl;
-  const evo = providers.data?.find((p) => p.id === evoId);
+  const evo = providers.data?.find((p) => p.id === wa.evoId);
   const cw = providers.data?.find((p) => p.id === cwId);
-  const account = accounts.data?.find((a) => a.id === accountId);
-
-  const ready = instanceName && accountId && (inboxChoice === 'create' ? inboxName.trim() : inbox) && (!takenWebhooks.length || consent) && (!needsPublicUrl || publicUrl.trim());
+  const ready = cwId && accountId && (inboxChoice === 'create' ? inboxName.trim() : inbox) && (!takenWebhooks.length || consent) && (!needsPublicUrl || publicUrl.trim());
 
   const summary = useMemo(
     () => ({
       state: 'configuring' as const,
-      evolution: { providerId: evoId, providerName: evo?.name ?? 'Evolution Go', instanceName: instanceName ?? 'Instance' },
-      chatwoot: { providerId: cwId, providerName: cw?.name ?? 'Chatwoot', accountId: accountId ?? 0, inboxId: inbox?.id ?? null, inboxName: inboxChoice === 'create' ? inboxName || 'New inbox' : (inbox?.name ?? 'Inbox') },
+      evolution: { providerId: wa.evoId, providerName: evo?.name ?? 'Evolution Go', instanceName: wa.instance.name, instanceId: wa.instance.id },
+      chatwoot: { providerId: cwId ?? '', providerName: cw?.name ?? 'Chatwoot', accountId: accountId ?? 0, inboxId: inbox?.id ?? null, inboxName: inboxChoice === 'create' ? inboxName || 'New inbox' : (inbox?.name ?? 'Inbox') },
     }),
-    [evoId, cwId, evo, cw, instanceName, accountId, inbox, inboxChoice, inboxName],
+    [wa, evo, cw, cwId, accountId, inbox, inboxChoice, inboxName],
   );
 
   async function submit() {
+    if (!cwId || !accountId) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -231,10 +259,10 @@ function LinkStep({ evoId, cwId, onBack, onCreate }: { evoId: string; cwId: stri
         await qc.invalidateQueries({ queryKey: keys.system });
       }
       await onCreate({
-        evolutionProviderId: evoId,
-        instanceName: instanceName!,
+        evolutionProviderId: wa.evoId,
+        instanceName: wa.instance.name,
         chatwootProviderId: cwId,
-        accountId: accountId!,
+        accountId,
         inbox: inboxChoice === 'create' ? { mode: 'create', inboxName: inboxName.trim() } : { mode: 'existing', inboxId: inbox!.id },
         replaceExistingWebhooks: consent,
         options,
@@ -248,30 +276,12 @@ function LinkStep({ evoId, cwId, onBack, onCreate }: { evoId: string; cwId: stri
 
   return (
     <Panel className="p-5">
-      <h2 className="text-[15px] font-semibold">Link a WhatsApp number to an inbox</h2>
+      <h2 className="text-[15px] font-semibold">Which Chatwoot inbox?</h2>
+      <p className="mt-1 text-[13px] text-muted">Messages to {wa.instance.name} appear in this inbox, and agent replies go back to WhatsApp.</p>
       <div className="mt-5 space-y-5">
-        <Field
-          label="WhatsApp instance"
-          htmlFor="instance"
-          hint={instance && !instance.connected ? 'This instance is not logged in to WhatsApp. You can connect it now and scan the QR code in Evolution Go later.' : undefined}
-          error={instances.error ? errorText(instances.error) : undefined}
-        >
-          {instances.isLoading ? (
-            <Skeleton className="h-8" />
-          ) : (
-            <Select
-              id="instance"
-              value={instanceName}
-              onValueChange={setInstanceName}
-              placeholder={instances.data?.length ? 'Choose an instance' : 'No instances on this server'}
-              disabled={!instances.data?.length}
-              items={(instances.data ?? []).map((i) => ({ value: i.name, label: i.name, hint: i.phone ? `+${i.phone}` : i.connected ? 'connected' : 'not logged in' }))}
-            />
-          )}
-        </Field>
-
-        <Field label="Chatwoot account" htmlFor="account" error={accounts.error ? errorText(accounts.error) : undefined}>
-          {accounts.isLoading ? (
+        <ProviderPicker label="Chatwoot" value={cwId} onChange={(v) => (setCwId(v), setAccountId(undefined), setInboxChoice('create'))} providers={cwProviders} />
+        <Field label="Account" htmlFor="account" error={accounts.error ? errorText(accounts.error) : undefined}>
+          {accounts.isLoading || !cwId ? (
             <Skeleton className="h-8" />
           ) : (
             <Select
@@ -286,7 +296,6 @@ function LinkStep({ evoId, cwId, onBack, onCreate }: { evoId: string; cwId: stri
             />
           )}
         </Field>
-
         <Field label="Inbox" htmlFor="inbox" hint={inboxChoice === 'create' ? 'A new API inbox is created in Chatwoot.' : undefined}>
           {accountId && inboxes.isLoading ? (
             <Skeleton className="h-8" />
@@ -299,12 +308,7 @@ function LinkStep({ evoId, cwId, onBack, onCreate }: { evoId: string; cwId: stri
               disabled={!accountId}
               items={[
                 { value: 'create', label: 'Create a new API inbox' },
-                ...(inboxes.data ?? []).map((i) => ({
-                  value: String(i.id),
-                  label: i.name,
-                  disabled: !i.bridgeable,
-                  hint: i.bridgeable ? 'API' : i.channelType.replace('Channel::', ''),
-                })),
+                ...(inboxes.data ?? []).map((i) => ({ value: String(i.id), label: i.name, disabled: !i.bridgeable, hint: i.bridgeable ? 'API' : i.channelType.replace('Channel::', '') })),
               ]}
             />
           )}
@@ -314,39 +318,36 @@ function LinkStep({ evoId, cwId, onBack, onCreate }: { evoId: string; cwId: stri
             <Input id="inbox-name" value={inboxName} onChange={(e) => setInboxName(e.target.value)} maxLength={80} />
           </Field>
         )}
-
         {needsPublicUrl && (
           <Field label="EvoBridge public URL" htmlFor="public-url" hint="Evolution Go and Chatwoot call this address. It must be reachable from both servers.">
             <Input id="public-url" value={publicUrl} onChange={(e) => setPublicUrl(e.target.value)} spellCheck={false} />
           </Field>
         )}
-
         {takenWebhooks.length > 0 && (
           <label className="flex gap-2.5 rounded-md border border-warn/40 bg-warn/5 px-3 py-2.5 text-[13px]">
             <Checkbox checked={consent} onCheckedChange={(v) => setConsent(v === true)} className="mt-0.5" />
             <span>
               <span className="font-medium">Another service receives these events: </span>
               <span className="break-all font-mono text-xs">{takenWebhooks.join(', ')}</span>
-              <span className="mt-1 block text-xs text-muted">
-                Only one webhook fits. EvoBridge will take it over and forward every event to that address, so the other service keeps working.
-              </span>
+              <span className="mt-1 block text-xs text-muted">Only one webhook fits. EvoBridge will take it over and forward every event to that address, so the other service keeps working.</span>
             </span>
           </label>
         )}
-
         <div className="space-y-3 rounded-md border border-border px-3 py-3">
           <Toggle label="Sign replies with the agent's name" checked={options.signAgentName} onChange={(v) => setOptions({ ...options, signAgentName: v })} />
           <Toggle label="Reopen the previous conversation" detail="Off: a resolved conversation stays closed and a new one starts." checked={options.reopenConversation} onChange={(v) => setOptions({ ...options, reopenConversation: v })} />
           <Toggle label="Show messages sent from the phone" checked={options.syncPhoneMessages} onChange={(v) => setOptions({ ...options, syncPhoneMessages: v })} />
           <Toggle label="Include group chats" checked={options.includeGroups} onChange={(v) => setOptions({ ...options, includeGroups: v })} />
+          <Toggle
+            label="Post connection notices in Chatwoot"
+            detail="Private notes in an EvoBridge conversation when WhatsApp connects, disconnects or logs out."
+            checked={options.connectionNotices}
+            onChange={(v) => setOptions({ ...options, connectionNotices: v })}
+          />
         </div>
-
-        {instanceName && account && (
+        {accountId && (
           <div className="rounded-md border border-border bg-bg px-4 py-4">
             <Route connection={summary} />
-            <p className="mt-3 text-center text-xs text-faint">
-              {evo?.name} → {instanceName} → {account.name} / {summary.chatwoot.inboxName}
-            </p>
           </div>
         )}
         {error && <p className="text-xs text-bad">{error}</p>}

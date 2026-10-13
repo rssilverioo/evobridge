@@ -13,6 +13,7 @@ import { keys, useAuthState } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 import { AppShell } from './app-shell';
 import { LogoMark } from './logo';
+import { OnboardingGate } from './onboarding';
 import { Button } from './ui/button';
 import { Field, Input, Skeleton } from './ui/primitives';
 
@@ -56,7 +57,13 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }
   if (data.setupRequired) return <SetupScreen />;
   if (!data.user) return <LoginScreen />;
-  return <AppShell user={data.user} version={data.version}>{children}</AppShell>;
+  return (
+    <OnboardingGate>
+      <AppShell user={data.user} version={data.version}>
+        {children}
+      </AppShell>
+    </OnboardingGate>
+  );
 }
 
 function AuthFrame({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {

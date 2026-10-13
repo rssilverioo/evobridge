@@ -47,7 +47,7 @@ export async function toConnectionDto(ctx: Pick<Ctx, 'db' | 'config'>, row: Conn
     state: row.state as ConnectionState,
     stateReason: row.state_reason,
     paused: Boolean(row.paused),
-    evolution: { providerId: evo.id, providerName: evo.name, instanceName: row.instance_name },
+    evolution: { providerId: evo.id, providerName: evo.name, instanceName: row.instance_name, instanceId: row.instance_id },
     chatwoot: { providerId: cw.id, providerName: cw.name, accountId: row.account_id, inboxId: row.inbox_id, inboxName: row.inbox_name },
     options: parseOptions(row.options),
     provision: JSON.parse(row.provision) as ProvisionStep[],

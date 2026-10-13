@@ -23,6 +23,8 @@ export const connectionOptionsSchema = z.object({
   syncPhoneMessages: z.boolean().default(true),
   /** Bridge group chats. Off by default: most support inboxes only want 1:1. */
   includeGroups: z.boolean().default(false),
+  /** Post connection status notes (connected, logged out...) in a Chatwoot conversation. */
+  connectionNotices: z.boolean().default(true),
 });
 export type ConnectionOptions = z.infer<typeof connectionOptionsSchema>;
 
@@ -96,7 +98,7 @@ export interface ConnectionDto {
   state: ConnectionState;
   stateReason: string | null;
   paused: boolean;
-  evolution: { providerId: string; providerName: string; instanceName: string };
+  evolution: { providerId: string; providerName: string; instanceName: string; instanceId: string | null };
   chatwoot: { providerId: string; providerName: string; accountId: number; inboxId: number | null; inboxName: string | null };
   options: ConnectionOptions;
   provision: ProvisionStep[];

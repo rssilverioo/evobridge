@@ -76,6 +76,15 @@ export class ChatwootClient {
     return this.call('GET', '/api/v1/profile');
   }
 
+  /** Account details; `locale` (e.g. "pt_BR") picks the language of EvoBridge notices. */
+  getAccount(accountId: number): Promise<{ id: number; name: string; locale?: string }> {
+    return this.call('GET', `/api/v1/accounts/${accountId}`);
+  }
+
+  updateContact(accountId: number, contactId: number, patch: { name?: string; phone_number?: string; avatar_url?: string }): Promise<unknown> {
+    return this.call('PATCH', `/api/v1/accounts/${accountId}/contacts/${contactId}`, { json: patch });
+  }
+
   async listInboxes(accountId: number): Promise<CwInbox[]> {
     const out = await this.call<{ payload: CwInbox[] }>('GET', `/api/v1/accounts/${accountId}/inboxes`);
     return out.payload ?? [];
@@ -119,7 +128,7 @@ export class ChatwootClient {
 
   async createContact(
     accountId: number,
-    input: { inboxId: number; sourceId: string; name: string; phoneNumber?: string | null; identifier?: string | null },
+    input: { inboxId: number; sourceId: string; name: string; phoneNumber?: string | null; identifier?: string | null; avatarUrl?: string | null },
   ): Promise<{ contactId: number; sourceId: string }> {
     const out = await this.call<{ payload: { contact: CwContact; contact_inbox?: { source_id: string } } }>('POST', `/api/v1/accounts/${accountId}/contacts`, {
       json: {
@@ -128,6 +137,7 @@ export class ChatwootClient {
         name: input.name,
         ...(input.phoneNumber ? { phone_number: input.phoneNumber } : {}),
         ...(input.identifier ? { identifier: input.identifier } : {}),
+        ...(input.avatarUrl ? { avatar_url: input.avatarUrl } : {}),
       },
     });
     return { contactId: out.payload.contact.id, sourceId: out.payload.contact_inbox?.source_id ?? input.sourceId };
@@ -163,6 +173,8 @@ export class ChatwootClient {
       content: string;
       messageType: 'incoming' | 'outgoing';
       sourceId: string;
+      /** Private note: visible to agents only, never sent to the channel. */
+      private?: boolean;
       inReplyToSourceId?: string | null;
       attachment?: { data: Buffer; fileName: string; mimetype: string; voice?: boolean };
     },
@@ -174,7 +186,7 @@ export class ChatwootClient {
         json: {
           content: input.content,
           message_type: input.messageType,
-          private: false,
+          private: Boolean(input.private),
           source_id: input.sourceId,
           ...(contentAttributes ? { content_attributes: contentAttributes } : {}),
         },
@@ -183,7 +195,7 @@ export class ChatwootClient {
     const form = new FormData();
     form.set('content', input.content);
     form.set('message_type', input.messageType);
-    form.set('private', 'false');
+    form.set('private', input.private ? 'true' : 'false');
     form.set('source_id', input.sourceId);
     if (contentAttributes) form.set('content_attributes', JSON.stringify(contentAttributes));
     if (input.attachment.voice) form.set('is_voice_message', 'true');

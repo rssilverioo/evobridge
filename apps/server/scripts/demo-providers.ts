@@ -27,6 +27,10 @@ cw.app.post<{ Body: { text?: string } }>('/__demo/reply', async (req) => {
   await cw.agentReply(conv.id, req.body?.text ?? 'Olá! Como posso ajudar?');
   return { ok: true, sentToWhatsApp: evo.sent.length };
 });
+evo.app.post<{ Body: { instance: string } }>('/__demo/scan', async (req) => {
+  evo.scan(req.body.instance);
+  return { ok: true };
+});
 cw.app.get('/__demo/state', async () => ({ contacts: cw.contacts, conversations: cw.conversations, messages: cw.messages }));
 evo.app.get('/__demo/state', async () => ({ instances: evo.instances, sent: evo.sent }));
 

@@ -6,6 +6,8 @@ import {
   connectionDeleteSchema,
   connectionUpdateSchema,
   eventQuerySchema,
+  instanceCreateSchema,
+  pairPhoneSchema,
   loginSchema,
   providerCreateSchema,
   providerTestSchema,
@@ -40,6 +42,7 @@ import {
   updateConnection,
 } from '../services/connections.js';
 import { eventCounts, queryEvents, recordEvent } from '../services/events.js';
+import { createInstance, pairWithPhone, pairingState } from '../services/pairing.js';
 import { createConnection, deleteConnection, provisionConnection } from '../services/provisioner.js';
 import {
   createProvider,
@@ -177,6 +180,20 @@ export async function apiRoutes(root: FastifyInstance, ctx: Ctx): Promise<void> 
   });
   app.post('/api/providers/:id/check', { schema: { params: idParams } }, async (req) => recheckProvider(ctx, req.params.id));
   app.get('/api/providers/:id/instances', { schema: { params: idParams } }, async (req) => listEvolutionInstances(ctx, req.params.id));
+  app.post('/api/providers/:id/instances', { schema: { params: idParams, body: instanceCreateSchema } }, async (req) => createInstance(ctx, req.params.id, req.body.name));
+  const instanceParams = idParams.extend({ instanceId: z.string().min(1).max(64) });
+  app.get('/api/providers/:id/instances/:instanceId/pairing', { schema: { params: instanceParams } }, async (req) => {
+    const state = await pairingState(ctx, req.params.id, req.params.instanceId);
+    if (state.status === 'logged_in') {
+      // A connection bridging this instance re-checks now: state and "connected" notice update at once.
+      const conns = await ctx.db.selectFrom('connections').select('id').where('evolution_provider_id', '=', req.params.id).where('instance_id', '=', req.params.instanceId).execute();
+      for (const c of conns) await checkConnection(ctx, c.id).catch(() => undefined);
+    }
+    return state;
+  });
+  app.post('/api/providers/:id/instances/:instanceId/pair', { schema: { params: instanceParams, body: pairPhoneSchema } }, async (req) =>
+    pairWithPhone(ctx, req.params.id, req.params.instanceId, req.body.phone),
+  );
   app.get('/api/providers/:id/accounts', { schema: { params: idParams } }, async (req) => listChatwootAccounts(ctx, req.params.id));
   app.get(
     '/api/providers/:id/accounts/:accountId/inboxes',

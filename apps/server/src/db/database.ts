@@ -4,6 +4,7 @@ import SQLite from 'better-sqlite3';
 import { Kysely, SqliteDialect } from 'kysely';
 import { type Migration, type MigrationProvider, Migrator } from 'kysely/migration';
 import * as m001 from './migrations/001_init.js';
+import * as m002 from './migrations/002_contact_enrichment.js';
 import type { Database } from './schema.js';
 
 export type DB = Kysely<Database>;
@@ -11,6 +12,7 @@ export type DB = Kysely<Database>;
 /** Migrations are bundled in code (not read from disk) so the single-file build carries them. */
 const migrations: Record<string, Migration> = {
   '001_init': m001,
+  '002_contact_enrichment': m002,
 };
 
 class StaticMigrationProvider implements MigrationProvider {

@@ -101,6 +101,8 @@ export interface ContactsTable {
   cw_contact_id: number | null;
   cw_source_id: string | null;
   cw_conversation_id: number | null;
+  /** 1 while the Chatwoot contact still has a made-up name ("WhatsApp 442925"). */
+  cw_name_placeholder: Generated<number>;
   created_at: string;
   updated_at: string;
 }

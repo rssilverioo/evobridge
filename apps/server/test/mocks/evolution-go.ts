@@ -43,6 +43,18 @@ export class FakeEvolutionGo {
   echoSends = true;
   failSends = 0;
   media = new Map<string, { mimetype: string; base64: string }>();
+  /** whatsmeow contact store, as returned by GET /user/contacts. */
+  contacts: Array<{ Jid: string; FullName?: string; PushName?: string; FirstName?: string; BusinessName?: string; Found?: boolean }> = [];
+  avatars = new Map<string, string>();
+  qrRequests = 0;
+  pairedPhone = '';
+
+  /** Simulates the phone scanning the QR code. */
+  scan(name: string, phone = '5511900000009'): void {
+    const inst = this.instances.find((i) => i.name === name)!;
+    inst.connected = true;
+    inst.jid = `${phone}:4@s.whatsapp.net`;
+  }
 
   constructor() {
     this.app = Fastify({ logger: false, bodyLimit: 50 * 1024 * 1024 });
@@ -122,6 +134,28 @@ export class FakeEvolutionGo {
         return { message: 'success', data: { jid: inst.jid, webhookUrl: inst.webhook, eventString: inst.events } };
       },
     );
+    app.post<{ Body: { name: string; token: string } }>('/instance/create', async (req, reply) => {
+      if (!admin(req.headers.apikey)) return reply.code(401).send({ error: 'not authorized' });
+      if (this.instances.some((i) => i.name === req.body.name)) return reply.code(500).send({ error: 'instance already exists' });
+      const inst = this.addInstance({ name: req.body.name, token: req.body.token, connected: false, jid: '', events: '' });
+      return { message: 'success', data: inst };
+    });
+    app.get('/instance/qr', async (req, reply) => {
+      const inst = this.byToken(req.headers.apikey as string);
+      if (!inst) return reply.code(401).send({ error: 'not authorized' });
+      if (inst.connected) return reply.code(500).send({ error: 'session already logged in' });
+      this.qrRequests++;
+      // A valid 1x1 PNG: the real server returns a QR image here.
+      const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      return { message: 'success', data: { qrcode: `data:image/png;base64,${png}`, code: `2@code${this.qrRequests}` } };
+    });
+    app.post<{ Body: { phone: string } }>('/instance/pair', async (req, reply) => {
+      const inst = this.byToken(req.headers.apikey as string);
+      if (!inst) return reply.code(401).send({ error: 'not authorized' });
+      if (inst.connected) return reply.code(500).send({ error: 'instance is already authenticated' });
+      this.pairedPhone = req.body.phone;
+      return { message: 'success', data: { PairingCode: 'ABCD-1234' } };
+    });
     app.get('/instance/status', async (req, reply) => {
       const inst = this.byToken(req.headers.apikey as string);
       if (!inst) return reply.code(401).send({ error: 'not authorized' });
@@ -178,6 +212,17 @@ export class FakeEvolutionGo {
       });
       if (this.echoSends) await this.emit(inst, this.sendMessageEvent(inst, fields.number ?? '', id, { imageMessage: { caption: fields.caption ?? '' } }));
       return { message: 'success', data: { Info: { ID: id } } };
+    });
+
+    app.get('/user/contacts', async (req, reply) => {
+      if (!this.byToken(req.headers.apikey as string)) return reply.code(401).send({ error: 'not authorized' });
+      return { message: 'success', data: this.contacts };
+    });
+    app.post<{ Body: { number: string } }>('/user/avatar', async (req, reply) => {
+      if (!this.byToken(req.headers.apikey as string)) return reply.code(401).send({ error: 'not authorized' });
+      const url = this.avatars.get(req.body.number);
+      if (!url) return reply.code(500).send({ error: 'no profile picture found' });
+      return { message: 'success', data: { url, id: '1', type: 'image', direct_path: '/x' } };
     });
 
     app.post<{ Body: { message: { imageMessage?: { URL?: string } } } }>('/message/downloadmedia', async (req, reply) => {

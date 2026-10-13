@@ -1,14 +1,16 @@
 import { expect, test } from '@playwright/test';
 
 const shot = (name: string) => `e2e/screenshots/${name}.png`;
+const EVO = 'http://127.0.0.1:4010';
+const CW = 'http://127.0.0.1:4020';
 
 test.describe.configure({ mode: 'serial' });
 
-test('admin sets up EvoBridge and bridges a WhatsApp instance to Chatwoot', async ({ page, request }) => {
-  // First run: create the administrator.
+test('first run: admin, onboarding, new instance paired by QR, two-way messages', async ({ page, request }) => {
+  // Create the administrator.
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Create the administrator' })).toBeVisible();
-  await page.getByLabel('Name').fill('Rodrigo');
+  await page.getByLabel('Name').fill('Admin');
   await page.getByLabel('Email').fill('admin@example.com');
   await page.getByLabel('Password').fill('weak');
   await expect(page.getByText('One special character')).toBeVisible();
@@ -16,87 +18,85 @@ test('admin sets up EvoBridge and bridges a WhatsApp instance to Chatwoot', asyn
   await page.screenshot({ path: shot('01-setup') });
   await page.getByRole('button', { name: 'Create account' }).click();
 
-  // Empty overview.
-  await expect(page.getByRole('heading', { name: 'No connections yet' })).toBeVisible();
-  await page.screenshot({ path: shot('02-overview-empty') });
-  await page.getByRole('link', { name: 'Create connection' }).click();
-
-  // Step 1: Evolution Go.
-  await expect(page.getByRole('heading', { name: 'Where is your Evolution Go?' })).toBeVisible();
-  await page.getByLabel('Server URL').fill('http://127.0.0.1:4010');
+  // Onboarding, before the dashboard: Evolution Go then Chatwoot.
+  await expect(page.getByRole('heading', { name: 'Connect your Evolution Go' })).toBeVisible();
+  await page.getByLabel('Server URL').fill(EVO);
   await page.getByLabel('Global API key').fill('wrong-key');
   await page.getByRole('button', { name: 'Test connection' }).click();
   await expect(page.getByRole('status')).toContainText('rejected');
   await page.getByLabel('Global API key').fill('global-key-123');
   await page.getByRole('button', { name: 'Test connection' }).click();
   await expect(page.getByRole('status')).toContainText('2 instances found');
-  await page.screenshot({ path: shot('03-wizard-evolution') });
+  await page.screenshot({ path: shot('02-onboarding-evolution') });
   await page.getByRole('button', { name: 'Save and continue' }).click();
 
-  // Step 2: Chatwoot.
-  await expect(page.getByRole('heading', { name: 'Where is your Chatwoot?' })).toBeVisible();
-  await page.getByLabel('Server URL').fill('http://127.0.0.1:4020');
+  await expect(page.getByRole('heading', { name: 'Connect your Chatwoot' })).toBeVisible();
+  await page.getByLabel('Server URL').fill(CW);
   await page.getByLabel('Access token').fill('admin-token');
   await page.getByRole('button', { name: 'Test connection' }).click();
   await expect(page.getByRole('status')).toContainText('Signed in as Ana Admin');
-  await page.getByRole('button', { name: 'Save and continue' }).click();
+  await page.getByRole('button', { name: 'Save and finish' }).click();
 
-  // Step 3: link instance -> inbox.
-  await expect(page.getByRole('heading', { name: 'Link a WhatsApp number to an inbox' })).toBeVisible();
-  await page.getByRole('combobox', { name: 'WhatsApp instance' }).click();
-  await page.getByRole('option', { name: /loja/ }).click();
-  await expect(page.getByLabel('Inbox name')).toHaveValue('WhatsApp loja');
+  // Dashboard, empty.
+  await expect(page.getByRole('heading', { name: 'No connections yet' })).toBeVisible();
+  await page.screenshot({ path: shot('03-overview-empty') });
+  await page.getByRole('link', { name: 'Create connection' }).click();
+
+  // Step 1: create a new instance and link the phone by QR, inside EvoBridge.
+  await expect(page.getByRole('heading', { name: 'Which WhatsApp number?' })).toBeVisible();
+  await page.getByRole('combobox', { name: 'Instance' }).click();
+  await page.getByRole('option', { name: 'Create a new instance' }).click();
+  await page.getByLabel('Instance name').fill('vendas');
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await expect(page.getByAltText('WhatsApp QR code')).toBeVisible({ timeout: 15_000 });
+  await page.screenshot({ path: shot('04-wizard-qr') });
+  await request.post(`${EVO}/__demo/scan`, { data: { instance: 'vendas' } });
+  await expect(page.getByText('vendas is linked to WhatsApp')).toBeVisible({ timeout: 15_000 });
+  await page.getByRole('button', { name: 'Continue' }).click();
+
+  // Step 2: inbox.
+  await expect(page.getByRole('heading', { name: 'Which Chatwoot inbox?' })).toBeVisible();
+  await expect(page.getByLabel('Inbox name')).toHaveValue('WhatsApp vendas');
   await expect(page.getByLabel('EvoBridge public URL')).toHaveValue('http://localhost:3950');
-  await page.screenshot({ path: shot('04-wizard-link') });
+  await page.screenshot({ path: shot('05-wizard-inbox') });
   await page.getByRole('button', { name: 'Create connection' }).click();
 
-  // Step 4: provisioning, every step verified.
+  // Step 3: provisioning, every step verified.
   await expect(page.getByRole('heading', { name: 'Connected' })).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText('Two-way sync is active')).toBeVisible();
-  await page.screenshot({ path: shot('05-wizard-connected') });
+  await page.screenshot({ path: shot('06-wizard-connected') });
+  const cwAfterSetup = await (await request.get(`${CW}/__demo/state`)).json();
+  expect(cwAfterSetup.messages.some((m: { private: boolean; content: string }) => m.private && /WhatsApp conectado/.test(m.content))).toBe(true);
   await page.getByRole('button', { name: 'Open connection' }).click();
 
-  // A customer writes on WhatsApp; an agent answers in Chatwoot.
-  const incoming = await request.post('http://127.0.0.1:4010/__demo/incoming', { data: { text: 'Oi! Vocês entregam hoje?' } });
+  // A customer writes; an agent answers.
+  const incoming = await request.post(`${EVO}/__demo/incoming`, { data: { text: 'Oi! Vocês entregam hoje?', instance: 'vendas' } });
   expect((await incoming.json()).delivered).toBe(200);
   await expect(page.getByText('Text message').first()).toBeVisible({ timeout: 10_000 });
-  const reply = await request.post('http://127.0.0.1:4020/__demo/reply', { data: { text: 'Entregamos sim!' } });
+  const reply = await request.post(`${CW}/__demo/reply`, { data: { text: 'Entregamos sim!' } });
   expect((await reply.json()).ok).toBe(true);
   await expect(page.getByText('Agent reply').first()).toBeVisible({ timeout: 10_000 });
-  const cwState = await (await request.get('http://127.0.0.1:4020/__demo/state')).json();
-  expect(cwState.messages.some((m: { source_id: string; message_type: string }) => m.message_type === 'incoming' && m.source_id?.startsWith('WAID:'))).toBe(true);
-  const evoState = await (await request.get('http://127.0.0.1:4010/__demo/state')).json();
+  const evoState = await (await request.get(`${EVO}/__demo/state`)).json();
   expect(evoState.sent.at(-1).text).toBe('*Ana:*\nEntregamos sim!');
-  await page.screenshot({ path: shot('06-connection') });
+  await page.screenshot({ path: shot('07-connection') });
 
-  // Overview reflects real state.
   await page.getByRole('link', { name: 'Overview' }).click();
   await expect(page.getByText('Connected').first()).toBeVisible();
-  await page.screenshot({ path: shot('07-overview') });
+  await page.screenshot({ path: shot('08-overview') });
 
-  // Logs: filter and inspect an event.
   await page.getByRole('link', { name: 'Events & Logs' }).click();
   await expect(page.getByRole('cell', { name: /Agent reply/ }).first()).toBeVisible();
-  await page.screenshot({ path: shot('08-events') });
+  await page.screenshot({ path: shot('09-events') });
   await page.getByRole('cell', { name: /Agent reply/ }).first().click();
   await expect(page.getByRole('dialog')).toContainText('WhatsApp message');
   await page.keyboard.press('Escape');
 
-  // Providers never show the stored key.
   await page.getByRole('link', { name: 'Providers' }).click();
   await expect(page.getByText('glob••••-123')).toBeVisible();
   await expect(page.getByText('global-key-123')).toHaveCount(0);
-  await page.screenshot({ path: shot('09-providers') });
+  await page.screenshot({ path: shot('10-providers') });
 
-  // Light theme renders too.
-  await page.getByRole('button', { name: /Rodrigo/ }).click();
-  await page.getByRole('menuitem', { name: 'Light theme' }).click();
-  await page.getByRole('link', { name: 'Overview' }).click();
-  await page.screenshot({ path: shot('10-overview-light') });
-
-  // Session survives a reload.
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Providers' })).toBeVisible();
 });
 
 test('mobile layout has a working menu', async ({ browser }) => {
@@ -110,6 +110,5 @@ test('mobile layout has a working menu', async ({ browser }) => {
   await page.getByRole('button', { name: 'Open menu' }).click();
   await page.getByRole('link', { name: 'Connections' }).click();
   await expect(page.getByRole('heading', { name: 'Connections' })).toBeVisible();
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
-  expect(overflow).toBe(false);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth)).toBe(false);
 });

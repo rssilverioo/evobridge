@@ -4,6 +4,7 @@ import { nowIso } from '../lib/ids.js';
 import type { WaContent, WaEvent } from '../providers/evolution-go/normalize.js';
 import { type Bridge, setConnectionState } from '../services/connections.js';
 import { extensionFor, waid, whatsAppToMarkdown } from './format.js';
+import { instancePhone, postNotice } from './notices.js';
 import { dropConversation, ensureThread } from './threads.js';
 
 export interface HandlerResult {
@@ -270,9 +271,18 @@ async function handleReceipt(ctx: Ctx, b: Bridge, e: Extract<WaEvent, { type: 'r
 async function handleConnection(ctx: Ctx, b: Bridge, e: Extract<WaEvent, { type: 'connection' }>): Promise<HandlerResult> {
   const type = `instance.${e.event}`;
   if (b.row.paused) return { status: 'processed', type };
-  if (e.event === 'Connected' || e.event === 'PairSuccess') await setConnectionState(ctx, b.row.id, 'connected', null);
-  else if (e.event === 'TemporaryBan') await setConnectionState(ctx, b.row.id, 'error', 'WhatsApp temporarily banned this number');
-  else if (e.event === 'LoggedOut') await setConnectionState(ctx, b.row.id, 'disconnected', 'The WhatsApp number was logged out. Scan the QR code again in Evolution Go.');
-  else await setConnectionState(ctx, b.row.id, 'disconnected', `WhatsApp connection lost (${e.event}${e.detail ? `: ${e.detail}` : ''})`);
+  if (e.event === 'Connected' || e.event === 'PairSuccess') {
+    await setConnectionState(ctx, b.row.id, 'connected', null);
+    await postNotice(ctx, b, 'reconnected', { phone: await instancePhone(b) });
+  } else if (e.event === 'TemporaryBan') {
+    await setConnectionState(ctx, b.row.id, 'error', 'WhatsApp temporarily banned this number');
+    await postNotice(ctx, b, 'banned');
+  } else if (e.event === 'LoggedOut') {
+    await setConnectionState(ctx, b.row.id, 'disconnected', 'The WhatsApp number was logged out. Scan the QR code again in Evolution Go.');
+    await postNotice(ctx, b, 'logged_out');
+  } else {
+    // Short drops reconnect on their own; the health check posts a notice if it lasts.
+    await setConnectionState(ctx, b.row.id, 'disconnected', `WhatsApp connection lost (${e.event}${e.detail ? `: ${e.detail}` : ''})`);
+  }
   return { status: 'processed', type };
 }

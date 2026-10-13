@@ -3,7 +3,7 @@ import type { ProviderCheck } from '@evobridge/shared';
 import { ProviderError } from '../../lib/errors.js';
 import type { FormData, HttpClient, HttpResponse } from '../../lib/http.js';
 import { statusError } from '../../lib/http.js';
-import type { EvoConnectBody, EvoEnvelope, EvoInstance, EvoMediaType, EvoSendResult, EvoSendTextBody, WaMessage } from './types.js';
+import type { EvoConnectBody, EvoContact, EvoEnvelope, EvoInstance, EvoMediaType, EvoSendResult, EvoSendTextBody, WaMessage } from './types.js';
 
 const NAME = 'Evolution Go';
 
@@ -92,6 +92,26 @@ export class EvolutionGoClient {
     return this.call<EvoInstance>(`/instance/info/${encodeURIComponent(instanceId)}`, this.globalKey);
   }
 
+  /** Creates an instance (global key). The caller picks the instance token. */
+  createInstance(name: string, token: string): Promise<EvoInstance> {
+    return this.call<EvoInstance>('/instance/create', this.globalKey, { method: 'POST', json: { name, token } });
+  }
+
+  /**
+   * Current pairing QR. Starts the WhatsApp client when needed. Never call it on a logged-in
+   * instance: Evolution Go restarts the client in that case.
+   */
+  getQr(instanceToken: string): Promise<{ qrcode?: string; code?: string; passkeyStage?: string; passkeyOpenUrl?: string }> {
+    return this.call('/instance/qr', instanceToken, { timeoutMs: 20_000 });
+  }
+
+  /** Phone-number pairing: returns the 8-character code typed on the phone. */
+  async pairPhone(instanceToken: string, phoneDigits: string): Promise<string> {
+    const out = await this.call<{ PairingCode?: string }>('/instance/pair', instanceToken, { method: 'POST', json: { phone: phoneDigits, subscribe: [] }, timeoutMs: 30_000 });
+    if (!out?.PairingCode) throw new ProviderError('bad_response', 'Evolution Go did not return a pairing code');
+    return out.PairingCode;
+  }
+
   /** Overwrites webhook URL, subscriptions and the three channel flags of the instance. */
   configureInstance(instanceToken: string, body: EvoConnectBody): Promise<{ webhookUrl?: string; eventString?: string }> {
     return this.call('/instance/connect', instanceToken, { method: 'POST', json: body });
@@ -140,6 +160,21 @@ export class EvolutionGoClient {
     const match = /^data:([^;]+);base64,(.*)$/s.exec(out.base64 ?? '');
     if (!match?.[1] || match[2] === undefined) throw new ProviderError('bad_response', 'Evolution Go returned media in an unexpected format');
     return { mimetype: match[1], data: Buffer.from(match[2], 'base64') };
+  }
+
+  /** Contacts whatsmeow knows: saved name (FullName) and WhatsApp profile name (PushName), keyed by JID. */
+  listContacts(instanceToken: string): Promise<EvoContact[]> {
+    return this.call<EvoContact[] | null>('/user/contacts', instanceToken, { timeoutMs: 30_000, maxBytes: 20 * 1024 * 1024 }).then((d) => d ?? []);
+  }
+
+  /** Profile picture URL on WhatsApp's CDN, or null when hidden or absent. */
+  async getAvatarUrl(instanceToken: string, jid: string): Promise<string | null> {
+    try {
+      const pic = await this.call<{ url?: string } | null>('/user/avatar', instanceToken, { method: 'POST', json: { number: jid, preview: false }, timeoutMs: 15_000 });
+      return pic?.url || null;
+    } catch {
+      return null;
+    }
   }
 
   markRead(instanceToken: string, chatJid: string, ids: string[]): Promise<unknown> {

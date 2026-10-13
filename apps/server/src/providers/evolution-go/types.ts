@@ -151,5 +151,15 @@ export interface EvoSendTextBody {
 
 export type EvoMediaType = 'image' | 'video' | 'audio' | 'document';
 
+/** `GET /user/contacts` item (pkg/user/service ContactInfo). */
+export interface EvoContact {
+  Jid: string;
+  Found?: boolean;
+  FirstName?: string;
+  FullName?: string;
+  PushName?: string;
+  BusinessName?: string;
+}
+
 /** Subscriptions EvoBridge needs on the instance webhook. */
 export const REQUIRED_EVENTS = ['MESSAGE', 'SEND_MESSAGE', 'READ_RECEIPT', 'CONNECTION'] as const;

@@ -2,7 +2,7 @@
 
 import type { ConnectionDto, ConnectionOptions } from '@evobridge/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Ellipsis, Pause, Play, RefreshCw, RotateCcw, Stethoscope, Trash2 } from 'lucide-react';
+import { ArrowLeft, Ellipsis, Pause, Play, QrCode, RefreshCw, RotateCcw, Stethoscope, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
@@ -11,10 +11,11 @@ import { PageHeader } from '@/components/app-shell';
 import { Route } from '@/components/connection-card';
 import { EmptyState, ErrorState } from '@/components/empty-state';
 import { EventList } from '@/components/event-list';
+import { PairingPanel } from '@/components/pairing-panel';
 import { ProvisionSteps } from '@/components/provision-steps';
 import { ConnectionStatus } from '@/components/status';
 import { Button } from '@/components/ui/button';
-import { ConfirmDialog, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/components/ui/overlay';
+import { ConfirmDialog, Dialog, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/components/ui/overlay';
 import { Checkbox, CopyValue, Input, Panel, Skeleton, Switch } from '@/components/ui/primitives';
 import { api, errorText } from '@/lib/api';
 import { keys, useConnection, useEvents } from '@/lib/queries';
@@ -51,6 +52,7 @@ function ConnectionDetail({ c }: { c: ConnectionDto }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [removeWebhooks, setRemoveWebhooks] = useState(false);
   const [confirmTakeover, setConfirmTakeover] = useState(false);
+  const [pairing, setPairing] = useState(false);
   const params = new URLSearchParams({ connectionId: c.id, limit: '15' });
   const events = useEvents(params, true);
   const provisioned = c.provision.every((s) => s.status === 'done' || s.status === 'skipped');
@@ -87,6 +89,12 @@ function ConnectionDetail({ c }: { c: ConnectionDto }) {
         description={<ConnectionStatus state={c.state} />}
         actions={
           <>
+            {c.state === 'disconnected' && c.evolution.instanceId && (
+              <Button variant="primary" onClick={() => setPairing(true)}>
+                <QrCode />
+                Connect WhatsApp
+              </Button>
+            )}
             {c.paused ? (
               <Button variant="secondary" loading={busy === 'resume'} onClick={() => void run('resume', () => api.post(`/api/connections/${c.id}/resume`), 'Connection resumed')}>
                 <Play />
@@ -225,6 +233,19 @@ function ConnectionDetail({ c }: { c: ConnectionDto }) {
         </label>
       </ConfirmDialog>
 
+      <Dialog open={pairing} onOpenChange={setPairing} title="Connect WhatsApp" description={`Link the phone to instance ${c.evolution.instanceName}.`} width="max-w-xl">
+        {pairing && c.evolution.instanceId && (
+          <PairingPanel
+            providerId={c.evolution.providerId}
+            instanceId={c.evolution.instanceId}
+            onConnected={() => {
+              void qc.invalidateQueries({ queryKey: keys.connections });
+              setTimeout(() => setPairing(false), 1200);
+            }}
+          />
+        )}
+      </Dialog>
+
       <ConfirmDialog
         open={confirmTakeover}
         onOpenChange={setConfirmTakeover}
@@ -276,6 +297,7 @@ function OptionsPanel({ c }: { c: ConnectionDto }) {
     { key: 'pendingConversations', label: 'Start new conversations as pending' },
     { key: 'syncPhoneMessages', label: 'Show messages sent from the phone' },
     { key: 'includeGroups', label: 'Include group chats' },
+    { key: 'connectionNotices', label: 'Post connection notices in Chatwoot', detail: 'Private notes in an EvoBridge conversation when WhatsApp connects, disconnects or logs out.' },
   ];
   return (
     <section>

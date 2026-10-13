@@ -28,7 +28,7 @@ describe('message bridge', () => {
   const incoming = (id: string, text: string, extra: Partial<Parameters<typeof s.evo.incomingText>[1]> = {}) =>
     s.evo.emit(inst, s.evo.incomingText(inst, { id, from: PHONE, text, lid: LID, ...extra }));
   const cwMessages = () => s.cw.messages.filter((m) => !m.deleted);
-  const conversationFor = () => s.cw.conversations.find((c) => c.inbox_id === inboxId)!;
+  const conversationFor = () => s.cw.conversations.find((c) => c.inbox_id === inboxId && c.source_id === PHONE)!;
 
   it('delivers an incoming WhatsApp message into Chatwoot', async () => {
     expect(await incoming('MSG1', 'Oi, *tudo bem*?')).toBe(200);

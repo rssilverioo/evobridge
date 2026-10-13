@@ -3,7 +3,8 @@ import { purgeExpiredSessions } from '../auth/auth.js';
 import type { Ctx } from '../context.js';
 import { ProviderError, errorMessage } from '../lib/errors.js';
 import { nowIso } from '../lib/ids.js';
-import { getConnectionRow, webhookUrls } from '../services/connections.js';
+import { getConnectionRow, loadBridge, webhookUrls } from '../services/connections.js';
+import { instancePhone, postNotice } from './notices.js';
 import { applyRetention } from '../services/events.js';
 import { chatwootClient, evolutionClient, getProviderRow, recheckProvider } from '../services/providers.js';
 import { getSettings, resolvePublicUrl } from '../services/settings.js';
@@ -36,6 +37,7 @@ export async function checkConnection(ctx: Ctx, id: string): Promise<ConnectionS
     const instance = await evo.getInstance(row.instance_id);
     if (instance.webhook !== expected.evolution) problems.push('The Evolution Go webhook was changed outside EvoBridge. Use "Reconfigure webhooks".');
     if (!instance.connected) {
+      await notify(ctx, id, 'disconnected', instance.disconnect_reason || undefined);
       return set('disconnected', instance.disconnect_reason ? `WhatsApp is not connected (${instance.disconnect_reason})` : 'WhatsApp is not connected on this instance. Scan the QR code in Evolution Go.');
     }
   } catch (err) {
@@ -60,7 +62,15 @@ export async function checkConnection(ctx: Ctx, id: string): Promise<ConnectionS
     .executeTakeFirstOrThrow();
   if (Number(dead.n) > 0) problems.push(`${dead.n} event${Number(dead.n) === 1 ? '' : 's'} failed in the last hour. See Events & Logs.`);
 
+  await notify(ctx, id, 'reconnected');
   return problems.length ? set('degraded', problems.join(' ')) : set('connected', null);
+}
+
+/** Connection notices from the health loop; postNotice skips anything that repeats the last state. */
+async function notify(ctx: Ctx, id: string, kind: 'disconnected' | 'reconnected', detail?: string): Promise<void> {
+  const b = await loadBridge(ctx, id).catch(() => null);
+  if (!b) return;
+  await postNotice(ctx, b, kind, { phone: kind === 'reconnected' ? await instancePhone(b) : null, detail });
 }
 
 function stateForError(err: unknown): ConnectionState {

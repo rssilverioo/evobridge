@@ -13,7 +13,8 @@ import { AppError, ProviderError, conflict, errorMessage } from '../lib/errors.j
 import { newId, nowIso } from '../lib/ids.js';
 import type { CwInbox } from '../providers/chatwoot/types.js';
 import { REQUIRED_EVENTS } from '../providers/evolution-go/types.js';
-import { type ConnectionRow, getConnection, getConnectionRow, webhookUrls } from './connections.js';
+import { instancePhone, postNotice } from '../bridge/notices.js';
+import { type ConnectionRow, getConnection, getConnectionRow, loadBridge, webhookUrls } from './connections.js';
 import { recordEvent } from './events.js';
 import { chatwootClient, evolutionClient, getProviderRow } from './providers.js';
 import { resolvePublicUrl } from './settings.js';
@@ -331,6 +332,10 @@ async function stepActivate(ctx: Ctx, id: string): Promise<StepResult> {
   const state = row.paused ? 'paused' : status?.LoggedIn ? 'connected' : 'disconnected';
   const reason = row.paused ? 'Paused by an administrator' : status?.LoggedIn ? null : 'WhatsApp number not logged in on Evolution Go';
   await ctx.db.updateTable('connections').set({ state, state_reason: reason, last_checked_at: nowIso(), updated_at: nowIso() }).where('id', '=', id).execute();
+  if (!row.paused) {
+    const b = await loadBridge(ctx, id);
+    await postNotice(ctx, b, status?.LoggedIn ? 'connected' : 'not_logged_in', { phone: await instancePhone(b) });
+  }
   return { status: 'done', message: row.paused ? 'Ready; resume the connection to start syncing' : 'Two-way sync is active' };
 }
 

@@ -7,6 +7,7 @@ import { isGroupJid, isLid, isPn } from '../providers/evolution-go/normalize.js'
 import type { EvoMediaType } from '../providers/evolution-go/types.js';
 import type { Bridge } from '../services/connections.js';
 import { extensionFor, markdownToWhatsApp } from './format.js';
+import { SYSTEM_CHAT, SYSTEM_SOURCE } from './notices.js';
 import type { HandlerResult } from './inbound.js';
 
 /**
@@ -47,6 +48,7 @@ export async function resolveTarget(ctx: Pick<Ctx, 'db'>, b: Bridge, p: CwWebhoo
     if (byConv) return byConv.chat_jid;
   }
   const source = conv?.contact_inbox?.source_id?.trim();
+  if (source === SYSTEM_SOURCE) return SYSTEM_CHAT;
   if (source) {
     const bySource = await ctx.db
       .selectFrom('contacts')
@@ -69,6 +71,9 @@ async function sendAgentMessage(ctx: Ctx, b: Bridge, p: CwWebhook): Promise<Hand
   const conversationId = p.conversation?.id;
   if (!cwMessageId || !conversationId) throw new PermanentError('Chatwoot payload without message or conversation id');
   const target = await resolveTarget(ctx, b, p);
+  if (target === SYSTEM_CHAT || p.conversation?.contact_inbox?.source_id === SYSTEM_SOURCE) {
+    return { status: 'ignored', type: 'message.outgoing', reason: 'reply in the EvoBridge notices conversation', refs: { cwMessageId } };
+  }
   const refs: Record<string, string | number> = { cwMessageId, cwConversationId: conversationId, chat: target };
 
   const existing = await ctx.db
