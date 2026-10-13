@@ -24,6 +24,62 @@ type StepResult = Omit<ProvisionStep, 'id' | 'at'>;
 const isOurs = (url: string | null | undefined, connectionId: string) => Boolean(url?.includes(`/hooks/evolution/${connectionId}/`) || url?.includes(`/hooks/chatwoot/${connectionId}/`));
 const isEvoBridgeUrl = (url: string | null | undefined) => Boolean(url && /\/hooks\/(evolution|chatwoot)\/con_[a-z0-9]+\//.test(url));
 const hasWebhook = (url: string | null | undefined) => Boolean(url && url !== 'disabled');
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+};
+
+type Takeover =
+  | { kind: 'blocked'; result: StepResult }
+  | { kind: 'ask'; result: StepResult }
+  | { kind: 'take'; forwardTo: string | null };
+
+/**
+ * What to do with a webhook that points elsewhere:
+ * - another connection of this same EvoBridge: refuse (one instance, one inbox);
+ * - another EvoBridge installation (moving from a laptop to a server, say): ask, then take it
+ *   over without forwarding, since forwarding would deliver every message twice;
+ * - any other service: ask, then take it over and forward events to it.
+ */
+function takeover(existing: string, publicUrl: string, replace: boolean, what: 'instance' | 'inbox'): Takeover {
+  const subject = what === 'instance' ? 'The instance' : 'The inbox';
+  if (isEvoBridgeUrl(existing)) {
+    if (hostOf(existing) === hostOf(publicUrl)) {
+      return { kind: 'blocked', result: { status: 'failed', message: `${subject} is already used by another connection in this EvoBridge. Remove that connection first.` } };
+    }
+    if (!replace) {
+      return {
+        kind: 'ask',
+        result: {
+          status: 'action_required',
+          message: `${subject} already sends events to another EvoBridge at ${hostOf(existing)}`,
+          instructions: [
+            'Confirm to move it to this EvoBridge. The other EvoBridge stops receiving these messages.',
+            'Then remove the connection there, so it does not try to take the webhook back.',
+          ],
+        },
+      };
+    }
+    return { kind: 'take', forwardTo: null };
+  }
+  if (!replace) {
+    return {
+      kind: 'ask',
+      result: {
+        status: 'action_required',
+        message: `${subject} already sends events to ${existing}`,
+        instructions: [
+          what === 'instance' ? 'Evolution Go supports a single webhook per instance.' : 'A Chatwoot API inbox has a single webhook URL.',
+          'Confirm to let EvoBridge take over. It will forward every event to that URL, so the other service keeps working.',
+        ],
+      },
+    };
+  }
+  return { kind: 'take', forwardTo: existing };
+}
 
 /** Creates the connection row, then provisions it. Returns the connection with per-step results. */
 export async function createConnection(ctx: Ctx, input: ConnectionCreateInput): Promise<ConnectionDto> {
@@ -221,20 +277,9 @@ async function stepEvolutionWebhook(ctx: Ctx, id: string, replace: boolean): Pro
 
   let previous = row.previous_evo_webhook_url;
   if (hasWebhook(instance.webhook) && instance.webhook !== target && !isOurs(instance.webhook, id)) {
-    if (isEvoBridgeUrl(instance.webhook)) {
-      return { status: 'failed', message: 'This instance is already bridged by another EvoBridge connection or installation' };
-    }
-    if (!replace) {
-      return {
-        status: 'action_required',
-        message: `The instance already sends events to ${instance.webhook}`,
-        instructions: [
-          'Evolution Go supports a single webhook per instance.',
-          'Confirm to let EvoBridge take over. It will forward every event to that URL, so the other service keeps working.',
-        ],
-      };
-    }
-    previous = instance.webhook;
+    const t = takeover(instance.webhook, url, replace, 'instance');
+    if (t.kind !== 'take') return t.result;
+    previous = t.forwardTo;
   }
 
   const existingEvents = instance.events.split(',').map((e) => e.trim()).filter(Boolean);
@@ -270,15 +315,9 @@ async function stepChatwootCallback(ctx: Ctx, id: string, replace: boolean): Pro
   let previous = row.previous_cw_webhook_url;
   if (inbox.webhook_url !== target) {
     if (inbox.webhook_url && !isOurs(inbox.webhook_url, id)) {
-      if (isEvoBridgeUrl(inbox.webhook_url)) return { status: 'failed', message: 'This inbox is already bridged by another EvoBridge connection or installation' };
-      if (!replace) {
-        return {
-          status: 'action_required',
-          message: `The inbox already sends events to ${inbox.webhook_url}`,
-          instructions: ['A Chatwoot API inbox has a single webhook URL.', 'Confirm to let EvoBridge take over and forward events to that URL.'],
-        };
-      }
-      previous = inbox.webhook_url;
+      const t = takeover(inbox.webhook_url, url, replace, 'inbox');
+      if (t.kind !== 'take') return t.result;
+      previous = t.forwardTo;
     }
     await cw.setInboxWebhook(row.account_id, row.inbox_id, target);
   }

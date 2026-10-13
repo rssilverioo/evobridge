@@ -86,6 +86,23 @@ describe('providers and provisioning', () => {
     expect(row.previous_evo_webhook_url).toBe('http://127.0.0.1:9/n8n-hook');
   });
 
+  it('moves an instance from another EvoBridge installation on confirmation, without forwarding to it', async () => {
+    const otherBridge = 'https://laptop.ngrok-free.app/hooks/evolution/con_0abc123def/s3cret';
+    const moved = s.evo.addInstance({ name: 'moved', token: 'token-moved', webhook: otherBridge });
+    const first = await connect(s, { instance: 'moved' });
+    const step = first.connection.provision.find((p: { id: string }) => p.id === 'evolution_webhook');
+    expect(step).toMatchObject({ status: 'action_required' });
+    expect(step.message).toMatch(/another EvoBridge at laptop\.ngrok-free\.app/);
+    expect(moved.webhook).toBe(otherBridge);
+
+    const retry = await s.api.post(`/api/connections/${first.connection.id}/provision`, { replaceExistingWebhooks: true });
+    expect(retry.body.state).toBe('connected');
+    expect(moved.webhook).toMatch(new RegExp(`/hooks/evolution/${first.connection.id}/`));
+    const row = await s.rt.ctx.db.selectFrom('connections').selectAll().where('id', '=', first.connection.id).executeTakeFirstOrThrow();
+    expect(row.previous_evo_webhook_url).toBeNull();
+    await s.api.del(`/api/connections/${first.connection.id}`, { removeRemoteWebhooks: false });
+  });
+
   it('explains when the Chatwoot user is not an administrator', async () => {
     s.cw.tokens['agent-token'] = { name: 'Bob Agent', role: 'agent' };
     const cwP = await s.api.post('/api/providers', { kind: 'chatwoot', baseUrl: s.cw.url, secret: 'agent-token' });

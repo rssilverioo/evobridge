@@ -432,7 +432,7 @@ function ConnectStep({ connection, running, onUpdate, setRunning }: { connection
       {asksTakeover && (
         <label className="mt-3 flex gap-2.5 rounded-md border border-warn/40 bg-warn/5 px-3 py-2.5 text-[13px]">
           <Checkbox checked={consent} onCheckedChange={(v) => setConsent(v === true)} className="mt-0.5" />
-          Replace it and forward events to the current address
+          Take over this webhook, as described above
         </label>
       )}
       {error && <p className="mt-3 text-xs text-bad">{error}</p>}
