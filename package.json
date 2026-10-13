@@ -14,7 +14,7 @@
     "start": "pnpm --filter @evobridge/server start",
     "test": "pnpm --filter @evobridge/server test",
     "test:e2e": "pnpm --filter @evobridge/web test:e2e",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm --filter @evobridge/shared typecheck && pnpm --filter @evobridge/server typecheck && pnpm --filter @evobridge/web typecheck",
     "lint": "pnpm -r lint"
   }
 }

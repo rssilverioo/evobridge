@@ -1,0 +1,14 @@
+**/node_modules
+**/.next
+**/out
+**/dist
+**/coverage
+**/test-results
+**/playwright-report
+apps/web/e2e/screenshots
+data
+.env
+.env.*
+!.env.example
+.git
+.DS_Store

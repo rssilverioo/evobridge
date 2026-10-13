@@ -1,0 +1,28 @@
+# EvoBridge behind Caddy with automatic HTTPS.
+#   1. Point a DNS record (e.g. bridge.example.com) to this server.
+#   2. DOMAIN=bridge.example.com docker compose -f docker-compose.caddy.yml up -d
+services:
+  evobridge:
+    image: ghcr.io/evobridge/evobridge:latest
+    restart: unless-stopped
+    environment:
+      PUBLIC_URL: https://${DOMAIN}
+    volumes:
+      - evobridge-data:/data
+    stop_grace_period: 30s
+
+  caddy:
+    image: public.ecr.aws/docker/library/caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    command: caddy reverse-proxy --from ${DOMAIN} --to evobridge:3000
+    volumes:
+      - caddy-data:/data
+
+volumes:
+  evobridge-data:
+  caddy-data:

@@ -1,0 +1,20 @@
+# Coolify: New Resource -> Docker Compose (empty) -> paste this file.
+# Coolify generates the domain and HTTPS; SERVICE_FQDN_EVOBRIDGE_3000 routes it to port 3000.
+services:
+  evobridge:
+    image: ghcr.io/evobridge/evobridge:latest
+    restart: unless-stopped
+    environment:
+      - SERVICE_FQDN_EVOBRIDGE_3000
+      - PUBLIC_URL=${SERVICE_FQDN_EVOBRIDGE}
+      - ALLOW_PRIVATE_NETWORKS=${ALLOW_PRIVATE_NETWORKS:-false}
+    volumes:
+      - evobridge-data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  evobridge-data:

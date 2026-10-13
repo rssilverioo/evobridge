@@ -1,0 +1,21 @@
+# EvoBridge: docker compose up -d, then open http://<server>:3000
+services:
+  evobridge:
+    image: ghcr.io/evobridge/evobridge:latest
+    # To build from source instead of pulling the image:
+    # build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Address Evolution Go and Chatwoot use to reach EvoBridge (your domain, with https).
+      # Optional: you can also set it in the dashboard.
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      # Set to true only if Evolution Go or Chatwoot run on the same private network.
+      ALLOW_PRIVATE_NETWORKS: ${ALLOW_PRIVATE_NETWORKS:-false}
+    volumes:
+      - evobridge-data:/data
+    stop_grace_period: 30s
+
+volumes:
+  evobridge-data:
