@@ -166,6 +166,7 @@ export async function recheckProvider(ctx: Pick<Ctx, 'db' | 'http' | 'box'>, id:
 export async function listEvolutionInstances(ctx: Pick<Ctx, 'db' | 'http' | 'box'>, providerId: string): Promise<EvolutionInstanceDto[]> {
   const row = await getProviderRow(ctx, providerId, 'evolution_go');
   const instances = await evolutionClient(ctx, row).listInstances();
+  const used = await ctx.db.selectFrom('connections').select(['id', 'name', 'instance_name']).where('evolution_provider_id', '=', providerId).execute();
   return instances
     .map((i) => {
       const own = stripDevice(i.jid);
@@ -176,6 +177,10 @@ export async function listEvolutionInstances(ctx: Pick<Ctx, 'db' | 'http' | 'box
         phone: own ? phoneOf(own) : null,
         profileName: null,
         webhookUrl: i.webhook && i.webhook !== 'disabled' ? i.webhook : null,
+        usedBy: (() => {
+          const c = used.find((u) => u.instance_name === i.name);
+          return c ? { id: c.id, name: c.name } : null;
+        })(),
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));

@@ -9,7 +9,7 @@ import {
 import { checkPublicUrl } from '../bridge/selfcheck.js';
 import type { Ctx } from '../context.js';
 import { randomToken } from '../lib/crypto.js';
-import { AppError, ProviderError, conflict, errorMessage } from '../lib/errors.js';
+import { AppError, ProviderError, errorMessage } from '../lib/errors.js';
 import { newId, nowIso } from '../lib/ids.js';
 import type { CwInbox } from '../providers/chatwoot/types.js';
 import { REQUIRED_EVENTS } from '../providers/evolution-go/types.js';
@@ -24,6 +24,10 @@ type StepResult = Omit<ProvisionStep, 'id' | 'at'>;
 const isOurs = (url: string | null | undefined, connectionId: string) => Boolean(url?.includes(`/hooks/evolution/${connectionId}/`) || url?.includes(`/hooks/chatwoot/${connectionId}/`));
 const isEvoBridgeUrl = (url: string | null | undefined) => Boolean(url && /\/hooks\/(evolution|chatwoot)\/con_[a-z0-9]+\//.test(url));
 const hasWebhook = (url: string | null | undefined) => Boolean(url && url !== 'disabled');
+const connectionIdIn = (url: string) => /\/hooks\/(?:evolution|chatwoot)\/(con_[a-z0-9]+)\//.exec(url)?.[1] ?? null;
+async function liveIds(ctx: Pick<Ctx, 'db'>): Promise<Set<string>> {
+  return new Set((await ctx.db.selectFrom('connections').select('id').execute()).map((r) => r.id));
+}
 const hostOf = (url: string) => {
   try {
     return new URL(url).host;
@@ -44,10 +48,12 @@ type Takeover =
  *   over without forwarding, since forwarding would deliver every message twice;
  * - any other service: ask, then take it over and forward events to it.
  */
-function takeover(existing: string, publicUrl: string, replace: boolean, what: 'instance' | 'inbox'): Takeover {
+function takeover(existing: string, publicUrl: string, replace: boolean, what: 'instance' | 'inbox', liveConnectionIds: Set<string>): Takeover {
   const subject = what === 'instance' ? 'The instance' : 'The inbox';
   if (isEvoBridgeUrl(existing)) {
     if (hostOf(existing) === hostOf(publicUrl)) {
+      // Left behind by a connection of this EvoBridge that no longer exists: safe to reuse.
+      if (!liveConnectionIds.has(connectionIdIn(existing) ?? '')) return { kind: 'take', forwardTo: null };
       return { kind: 'blocked', result: { status: 'failed', message: `${subject} is already used by another connection in this EvoBridge. Remove that connection first.` } };
     }
     if (!replace) {
@@ -86,25 +92,28 @@ export async function createConnection(ctx: Ctx, input: ConnectionCreateInput): 
   const evoRow = await getProviderRow(ctx, input.evolutionProviderId, 'evolution_go');
   await getProviderRow(ctx, input.chatwootProviderId, 'chatwoot');
 
-  const existing = await ctx.db
+  // One instance feeds one inbox: a new connection replaces the old one, but only when confirmed.
+  const clashes = ctx.db
     .selectFrom('connections')
-    .select('name')
-    .where('evolution_provider_id', '=', input.evolutionProviderId)
-    .where('instance_name', '=', input.instanceName)
-    .executeTakeFirst();
-  if (existing) throw conflict(`Instance ${input.instanceName} is already bridged by "${existing.name}"`, 'One instance can feed only one inbox; otherwise every message would be delivered twice.');
-  if (input.inbox.mode === 'existing') {
-    const inboxId = input.inbox.inboxId;
-    const used = await ctx.db
-      .selectFrom('connections')
-      .select('name')
-      .where('chatwoot_provider_id', '=', input.chatwootProviderId)
-      .where('account_id', '=', input.accountId)
-      .where('inbox_id', '=', inboxId)
-      .executeTakeFirst();
-    if (used) throw conflict(`That inbox is already used by "${used.name}"`);
+    .select(['id', 'name'])
+    .where((eb) =>
+      eb.or([
+        eb.and([eb('evolution_provider_id', '=', input.evolutionProviderId), eb('instance_name', '=', input.instanceName)]),
+        ...(input.inbox.mode === 'existing'
+          ? [eb.and([eb('chatwoot_provider_id', '=', input.chatwootProviderId), eb('account_id', '=', input.accountId), eb('inbox_id', '=', input.inbox.inboxId)])]
+          : []),
+      ]),
+    );
+  const existing = await clashes.execute();
+  if (existing.length && !input.replaceExistingConnection) {
+    const names = existing.map((c) => `"${c.name}"`).join(' and ');
+    throw new AppError(409, 'connection_in_use', `This instance or inbox is already used by ${names}`, `Confirm to replace it: ${names} will be removed and this connection takes over.`);
   }
-
+  for (const old of existing) {
+    // Remote webhooks are left alone: provisioning below points them at the new connection.
+    await deleteConnection(ctx, old.id, { removeRemoteWebhooks: false });
+    await recordEvent(ctx, { connectionId: null, source: 'evobridge', direction: 'system', type: 'connection.replaced', status: 'processed', refs: { replaced: old.name } });
+  }
   const at = nowIso();
   const id = newId('con');
   const options = connectionOptionsSchema.parse(input.options ?? {});
@@ -277,7 +286,7 @@ async function stepEvolutionWebhook(ctx: Ctx, id: string, replace: boolean): Pro
 
   let previous = row.previous_evo_webhook_url;
   if (hasWebhook(instance.webhook) && instance.webhook !== target && !isOurs(instance.webhook, id)) {
-    const t = takeover(instance.webhook, url, replace, 'instance');
+    const t = takeover(instance.webhook, url, replace, 'instance', await liveIds(ctx));
     if (t.kind !== 'take') return t.result;
     previous = t.forwardTo;
   }
@@ -315,7 +324,7 @@ async function stepChatwootCallback(ctx: Ctx, id: string, replace: boolean): Pro
   let previous = row.previous_cw_webhook_url;
   if (inbox.webhook_url !== target) {
     if (inbox.webhook_url && !isOurs(inbox.webhook_url, id)) {
-      const t = takeover(inbox.webhook_url, url, replace, 'inbox');
+      const t = takeover(inbox.webhook_url, url, replace, 'inbox', await liveIds(ctx));
       if (t.kind !== 'take') return t.result;
       previous = t.forwardTo;
     }

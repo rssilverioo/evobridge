@@ -147,7 +147,11 @@ function WhatsAppStep({ initial, onDone }: { initial: WhatsAppChoice | null; onD
               onValueChange={setChoice}
               placeholder="Choose an instance"
               items={[
-                ...(instances.data ?? []).map((i) => ({ value: i.id, label: i.name, hint: i.phone ? `+${i.phone}` : i.connected ? 'connected' : 'not linked' })),
+                ...(instances.data ?? []).map((i) => ({
+                  value: i.id,
+                  label: i.name,
+                  hint: i.usedBy ? `in use by ${i.usedBy.name}` : i.phone ? `+${i.phone}` : i.connected ? 'connected' : 'not linked',
+                })),
                 { value: NEW_INSTANCE, label: 'Create a new instance' },
               ]}
             />
@@ -203,6 +207,7 @@ interface CreateBody {
   accountId: number;
   inbox: { mode: 'existing'; inboxId: number } | { mode: 'create'; inboxName: string };
   replaceExistingWebhooks: boolean;
+  replaceExistingConnection: boolean;
   options: Record<string, boolean>;
 }
 
@@ -221,6 +226,8 @@ function InboxStep({ wa, onBack, onCreate }: { wa: WhatsAppChoice; onBack: () =>
   const [inboxChoice, setInboxChoice] = useState<string>('create');
   const [inboxName, setInboxName] = useState(`WhatsApp ${wa.instance.name}`);
   const [consent, setConsent] = useState(false);
+  const [replaceAsk, setReplaceAsk] = useState<string | null>(wa.instance.usedBy ? `This instance is already used by "${wa.instance.usedBy.name}".` : null);
+  const [replaceOk, setReplaceOk] = useState(false);
   const [publicUrl, setPublicUrl] = useState('');
   const [options, setOptions] = useState({ signAgentName: true, reopenConversation: true, syncPhoneMessages: true, includeGroups: false, connectionNotices: true });
   const [submitting, setSubmitting] = useState(false);
@@ -238,7 +245,8 @@ function InboxStep({ wa, onBack, onCreate }: { wa: WhatsAppChoice; onBack: () =>
   const needsPublicUrl = system.data && !system.data.publicUrl;
   const evo = providers.data?.find((p) => p.id === wa.evoId);
   const cw = providers.data?.find((p) => p.id === cwId);
-  const ready = cwId && accountId && (inboxChoice === 'create' ? inboxName.trim() : inbox) && (!takenWebhooks.length || consent) && (!needsPublicUrl || publicUrl.trim());
+  const ready =
+    cwId && accountId && (inboxChoice === 'create' ? inboxName.trim() : inbox) && (!takenWebhooks.length || consent) && (!needsPublicUrl || publicUrl.trim()) && (!replaceAsk || replaceOk);
 
   const summary = useMemo(
     () => ({
@@ -265,10 +273,14 @@ function InboxStep({ wa, onBack, onCreate }: { wa: WhatsAppChoice; onBack: () =>
         accountId,
         inbox: inboxChoice === 'create' ? { mode: 'create', inboxName: inboxName.trim() } : { mode: 'existing', inboxId: inbox!.id },
         replaceExistingWebhooks: consent,
+        replaceExistingConnection: replaceOk,
         options,
       });
     } catch (err) {
-      setError(errorText(err));
+      if (err instanceof ApiRequestError && err.code === 'connection_in_use') {
+        setReplaceAsk(`${err.message}.`);
+        setReplaceOk(false);
+      } else setError(errorText(err));
     } finally {
       setSubmitting(false);
     }
@@ -330,6 +342,15 @@ function InboxStep({ wa, onBack, onCreate }: { wa: WhatsAppChoice; onBack: () =>
               <span className="font-medium">Another service receives these events: </span>
               <span className="break-all font-mono text-xs">{takenWebhooks.join(', ')}</span>
               <span className="mt-1 block text-xs text-muted">Only one webhook fits. EvoBridge will take it over and forward every event to that address, so the other service keeps working.</span>
+            </span>
+          </label>
+        )}
+        {replaceAsk && (
+          <label className="flex gap-2.5 rounded-md border border-warn/40 bg-warn/5 px-3 py-2.5 text-[13px]">
+            <Checkbox checked={replaceOk} onCheckedChange={(v) => setReplaceOk(v === true)} className="mt-0.5" />
+            <span>
+              <span className="font-medium">{replaceAsk} </span>
+              Replace it with this connection. The old connection is removed; contacts and conversations in Chatwoot stay.
             </span>
           </label>
         )}

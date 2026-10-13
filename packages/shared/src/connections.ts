@@ -43,6 +43,8 @@ export const connectionCreateSchema = z.object({
   inbox: inboxChoiceSchema,
   /** Explicit consent to replace a webhook another service set on the instance or inbox. */
   replaceExistingWebhooks: z.boolean().default(false),
+  /** Explicit consent to remove connections of this EvoBridge that use the same instance or inbox. */
+  replaceExistingConnection: z.boolean().default(false),
   options: connectionOptionsSchema.partial().optional(),
 });
 export type ConnectionCreateInput = z.infer<typeof connectionCreateSchema>;

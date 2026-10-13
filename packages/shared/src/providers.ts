@@ -83,6 +83,8 @@ export interface EvolutionInstanceDto {
   profileName: string | null;
   /** Webhook currently configured on the instance, if readable. */
   webhookUrl: string | null;
+  /** Connection of this EvoBridge already bridging the instance. */
+  usedBy?: { id: string; name: string } | null;
 }
 
 export interface ChatwootAccountDto {

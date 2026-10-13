@@ -251,7 +251,7 @@ function ConnectionDetail({ c }: { c: ConnectionDto }) {
         onOpenChange={setConfirmTakeover}
         title="Take over the existing webhook?"
         description="Something else receives these events today. EvoBridge will replace the webhook. Events are forwarded to a regular service, but not to another EvoBridge, which would duplicate messages."
-        confirmLabel="Replace and forward"
+        confirmLabel="Take over"
         onConfirm={() => {
           setConfirmTakeover(false);
           void reprovision(true);

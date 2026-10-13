@@ -67,9 +67,39 @@ describe('providers and provisioning', () => {
     expect(JSON.stringify(connection)).not.toContain(inst.webhook.split('/').pop()!);
   });
 
-  it('does not let the same instance be bridged twice', async () => {
+  it('asks before a second connection takes an instance, then replaces the old one', async () => {
     const res = await connect(s);
     expect(res.status).toBe(409);
+    expect(res.connection.error.code).toBe('connection_in_use');
+
+    const before = (await s.api.get('/api/connections')).body as Array<{ id: string; evolution: { instanceName: string } }>;
+    const old = before.find((c) => c.evolution.instanceName === 'shop')!;
+    const instances = (await s.api.get(`/api/providers/${res.evoProviderId}/instances`)).body as Array<{ name: string; usedBy: { id: string } | null }>;
+    expect(instances.find((i) => i.name === 'shop')!.usedBy!.id).toBe(old.id);
+
+    const replaced = await s.api.post('/api/connections', {
+      evolutionProviderId: res.evoProviderId,
+      instanceName: 'shop',
+      chatwootProviderId: res.cwProviderId,
+      accountId: 1,
+      inbox: { mode: 'create', inboxName: 'WhatsApp v2' },
+      replaceExistingConnection: true,
+    });
+    expect(replaced.status).toBe(200);
+    expect(replaced.body.state).toBe('connected');
+    const after = (await s.api.get('/api/connections')).body as Array<{ id: string; evolution: { instanceName: string } }>;
+    expect(after.some((c) => c.id === old.id)).toBe(false);
+    expect(after.filter((c) => c.evolution.instanceName === 'shop')).toHaveLength(1);
+    expect(s.evo.instances.find((i) => i.name === 'shop')!.webhook).toMatch(new RegExp(`/hooks/evolution/${replaced.body.id}/`));
+  });
+
+  it('silently reuses a webhook left behind by a deleted connection of this EvoBridge', async () => {
+    const list = (await s.api.get('/api/connections')).body as Array<{ id: string; evolution: { instanceName: string } }>;
+    const shop = list.find((c) => c.evolution.instanceName === 'shop')!;
+    await s.api.del(`/api/connections/${shop.id}`, { removeRemoteWebhooks: false });
+    const res = await connect(s);
+    expect(res.status).toBe(200);
+    expect(res.connection.state).toBe('connected');
   });
 
   it('asks before replacing a webhook another service uses, then forwards to it', async () => {
