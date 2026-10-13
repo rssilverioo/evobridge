@@ -67,8 +67,8 @@ export class FakeEvolutionGo {
     return inst;
   }
 
-  async start(): Promise<string> {
-    this.url = await this.app.listen({ port: 0, host: '127.0.0.1' });
+  async start(port = 0): Promise<string> {
+    this.url = await this.app.listen({ port, host: '127.0.0.1' });
     return this.url;
   }
 

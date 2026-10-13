@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import type { ConnectionState } from './connections.js';
-import type { EventDto } from './events.js';
-import type { ProviderKind, ProviderStatus } from './providers.js';
+import type { ConnectionState } from './connections';
+import type { EventDto } from './events';
+import type { ProviderKind, ProviderStatus } from './providers';
 
 /** Every API error has this shape. `code` is stable, `message` is for humans. */
 export interface ApiError {

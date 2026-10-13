@@ -80,6 +80,19 @@ export async function hookRoutes(app: FastifyInstance, ctx: Ctx): Promise<void> 
       return { ok: true, ignored: 'paused' };
     }
 
+    // Echo of a message EvoBridge itself sent (its id was reserved before sending): acknowledge
+    // quietly instead of logging an "ignored" line after every agent reply.
+    if (event.type === 'message') {
+      const echo = await ctx.db
+        .selectFrom('message_links')
+        .select('id')
+        .where('connection_id', '=', row.id)
+        .where('wa_message_id', '=', event.id)
+        .where('origin', '=', 'cw_to_wa')
+        .executeTakeFirst();
+      if (echo) return { ok: true, ignored: 'echo' };
+    }
+
     let dedupeKey: string;
     let orderingKey: string;
     let refs: Record<string, string> = {};

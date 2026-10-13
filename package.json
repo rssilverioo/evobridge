@@ -5,10 +5,12 @@
   "description": "The simplest open-source bridge between Evolution Go and Chatwoot.",
   "license": "MIT",
   "packageManager": "pnpm@9.15.4",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "pnpm -r --parallel --filter ./apps/* dev",
-    "build": "pnpm --filter @evobridge/shared build && pnpm --filter @evobridge/web build && pnpm --filter @evobridge/server build",
+    "build": "pnpm --filter @evobridge/web build && pnpm --filter @evobridge/server build",
     "start": "pnpm --filter @evobridge/server start",
     "test": "pnpm --filter @evobridge/server test",
     "test:e2e": "pnpm --filter @evobridge/web test:e2e",
