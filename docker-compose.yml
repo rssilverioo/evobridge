@@ -1,7 +1,7 @@
 # EvoBridge: docker compose up -d, then open http://<server>:3000
 services:
   evobridge:
-    image: ghcr.io/evobridge/evobridge:latest
+    image: ghcr.io/rssilverioo/evobridge:latest
     # To build from source instead of pulling the image:
     # build: .
     restart: unless-stopped

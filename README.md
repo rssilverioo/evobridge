@@ -26,7 +26,7 @@ You connect a WhatsApp number running on Evolution Go to a Chatwoot inbox from a
 ## Install
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/evobridge/evobridge/main/docker-compose.yml
+curl -fsSLO https://raw.githubusercontent.com/rssilverioo/evobridge/main/docker-compose.yml
 docker compose up -d
 ```
 

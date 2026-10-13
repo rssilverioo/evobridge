@@ -2,7 +2,7 @@
 # Coolify generates the domain and HTTPS; SERVICE_FQDN_EVOBRIDGE_3000 routes it to port 3000.
 services:
   evobridge:
-    image: ghcr.io/evobridge/evobridge:latest
+    image: ghcr.io/rssilverioo/evobridge:latest
     restart: unless-stopped
     environment:
       - SERVICE_FQDN_EVOBRIDGE_3000

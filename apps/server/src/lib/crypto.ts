@@ -78,7 +78,7 @@ export function safeEqual(a: string, b: string): boolean {
   return ab.length === bb.length && timingSafeEqual(ab, bb);
 }
 
-/** "sk_live_abcdef123456" -> "sk_l••••3456" */
+/** "abcdef123456ghij" -> "abcd••••ghij" */
 export function maskSecret(secret: string): string {
   if (secret.length <= 8) return '••••••••';
   return `${secret.slice(0, 4)}••••${secret.slice(-4)}`;

@@ -18,9 +18,9 @@ describe('encryption at rest', () => {
   const box = new SecretBox(Buffer.alloc(32, 7));
 
   it('round-trips and never stores plaintext', () => {
-    const sealed = box.encrypt('sk_live_supersecret');
+    const sealed = box.encrypt('example-secret-value');
     expect(sealed).not.toContain('supersecret');
-    expect(box.decrypt(sealed)).toBe('sk_live_supersecret');
+    expect(box.decrypt(sealed)).toBe('example-secret-value');
     expect(box.encrypt('x')).not.toBe(box.encrypt('x'));
   });
 

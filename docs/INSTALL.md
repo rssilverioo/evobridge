@@ -1,6 +1,6 @@
 # Installing EvoBridge
 
-EvoBridge ships as one Docker image, `ghcr.io/evobridge/evobridge`. It needs:
+EvoBridge ships as one Docker image, `ghcr.io/rssilverioo/evobridge`. It needs:
 
 - **A volume at `/data`.** It holds the SQLite database and the encryption key.
 - **Port `3000`.**
@@ -25,7 +25,7 @@ It doesn't need a database server, Redis, or any variable. You enter the provide
 ## EasyPanel
 
 1. **Create the app.** Open a project, click **+ Service**, then choose **App**, and name it `evobridge`.
-2. **Set the source.** Go to **Source**, choose **Docker Image**, enter `ghcr.io/evobridge/evobridge:latest`, and click **Save**.
+2. **Set the source.** Go to **Source**, choose **Docker Image**, enter `ghcr.io/rssilverioo/evobridge:latest`, and click **Save**.
 3. **Add storage.** Go to **Mounts**, click **Add Volume**, use the name `data` and the mount path `/data`.
 4. **Add a domain.** Go to **Domains** and add your domain, for example `bridge.example.com`, with **port 3000**. EasyPanel issues the HTTPS certificate.
 5. **Deploy.** Click **Deploy** and open the domain.
@@ -36,7 +36,7 @@ It doesn't need a database server, Redis, or any variable. You enter the provide
 ## Dokploy
 
 1. **Create the app.** Open a project, click **Create Service**, then choose **Application**.
-2. **Set the provider.** Go to **Provider**, choose **Docker**, enter the image `ghcr.io/evobridge/evobridge:latest`, and click **Save**.
+2. **Set the provider.** Go to **Provider**, choose **Docker**, enter the image `ghcr.io/rssilverioo/evobridge:latest`, and click **Save**.
 3. **Add storage.** Go to **Advanced**, then **Volumes / Mounts**, and add a **Volume Mount** named `evobridge-data` with mount path `/data`.
 4. **Add a domain.** Go to **Domains** and add your domain with **container port 3000**. Enable HTTPS with Let's Encrypt.
 5. **Deploy** and open the domain.
@@ -49,13 +49,13 @@ You can also use **Create Service → Compose**, paste [`docker-compose.yml`](..
 2. **Deploy.** Coolify generates a domain, routes it to port 3000 and sets `PUBLIC_URL` from it. To use your own domain, edit the **Domains** of the `evobridge` service.
 3. **Open the domain.**
 
-You can also use **+ New → Docker Image** with `ghcr.io/evobridge/evobridge:latest`, exposed port `3000`, and a persistent storage mount at `/data`.
+You can also use **+ New → Docker Image** with `ghcr.io/rssilverioo/evobridge:latest`, exposed port `3000`, and a persistent storage mount at `/data`.
 
 ## Docker Compose on a VPS
 
 ```bash
 mkdir evobridge && cd evobridge
-curl -fsSLO https://raw.githubusercontent.com/evobridge/evobridge/main/docker-compose.yml
+curl -fsSLO https://raw.githubusercontent.com/rssilverioo/evobridge/main/docker-compose.yml
 docker compose up -d
 ```
 
@@ -64,7 +64,7 @@ Open `http://<server-ip>:3000`.
 For production, put it behind HTTPS. Point a DNS record to the server, then:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/evobridge/evobridge/main/deploy/docker-compose.caddy.yml
+curl -fsSLO https://raw.githubusercontent.com/rssilverioo/evobridge/main/deploy/docker-compose.caddy.yml
 DOMAIN=bridge.example.com docker compose -f docker-compose.caddy.yml up -d
 ```
 

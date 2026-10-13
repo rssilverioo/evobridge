@@ -3,7 +3,7 @@
 #   2. DOMAIN=bridge.example.com docker compose -f docker-compose.caddy.yml up -d
 services:
   evobridge:
-    image: ghcr.io/evobridge/evobridge:latest
+    image: ghcr.io/rssilverioo/evobridge:latest
     restart: unless-stopped
     environment:
       PUBLIC_URL: https://${DOMAIN}
